@@ -96,7 +96,7 @@ def load_data_for_training(annot_path, caps_path=None):
     data = {'train': [], 'val': []}
 
     for item in annotations:
-        file_name = item['filename'].split('_')[-1]
+        file_name = item['file_name']
         if caps_path is not None:
             caps = retrieved_caps[str(item['cocoid'])]
         else:
