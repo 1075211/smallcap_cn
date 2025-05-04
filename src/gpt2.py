@@ -81,6 +81,18 @@ class ThisGPT2Attention(GPT2Attention):
         else:
             self.c_attn = Conv1D(3 * self.embed_dim, self.embed_dim)
             self.c_proj = Conv1D(self.embed_dim, self.embed_dim)
+            
+    def _split_heads(self, x, num_heads, head_dim):
+        # x shape: (batch_size, seq_len, hidden_size)
+        new_shape = x.size()[:-1] + (num_heads, head_dim)
+        x = x.view(*new_shape)  # (batch_size, seq_len, num_heads, head_dim)
+        return x.permute(0, 2, 1, 3)  # (batch_size, num_heads, seq_len, head_dim)
+
+    def _merge_heads(self, x, num_heads, head_dim):
+        # x shape: (batch_size, num_heads, seq_len, head_dim)
+        x = x.permute(0, 2, 1, 3).contiguous()  # (batch_size, seq_len, num_heads, head_dim)
+        new_shape = x.size()[:-2] + (num_heads * head_dim,)
+        return x.view(*new_shape)  # (batch_size, seq_len, hidden_size)
 
     def forward(
         self,
