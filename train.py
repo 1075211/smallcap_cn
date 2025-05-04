@@ -90,6 +90,12 @@ def get_data(tokenizer, max_length, args):
     data = load_data_for_training(args.annotations_path, args.captions_path)
     train_df = pd.DataFrame(data['train'])
 
+    # 打印训练集的长度，确保数据加载正确
+    print(f"Loaded {len(train_df)} training samples.")
+
+    if len(train_df) == 0:
+        raise ValueError("No training data found. Please check the dataset paths and content.")
+
     # 根据 ablation_visual 选择使用哪个数据集
     if args.ablation_visual:
         train_dataset = AblationFeaturesDataset(
