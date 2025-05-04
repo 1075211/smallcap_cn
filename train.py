@@ -1,4 +1,5 @@
 import os
+from src.gpt2 import ThisGPT2Config, ThisGPT2LMHeadModel
 import json
 import h5py
 import torch
