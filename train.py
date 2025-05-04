@@ -151,7 +151,8 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Model Training')
     parser.add_argument("--features_dir", type=str, default="/kaggle/working/features/", help="Directory where cached input image features are stored")
-    parser.add_argument("--annotations_path", type=str, default="/kaggle/input/coco-2017-dataset/annotations/captions_train2017.json", help="JSON file with annotations in Karpathy splits")
+    parser.add_argument("--annotations_path", type=str, default="/kaggle/input/coco-2017-dataset/coco2017/train2017", help="JSON file with annotations in Karpathy splits")
+
     parser.add_argument("--captions_path", type=str, default="/kaggle/working/retrieved_caps_resnet50x64.json", help="JSON file with retrieved captions")
     parser.add_argument("--experiments_dir", type=str, default="/kaggle/working/", help="Directory where trained models will be saved")
 
@@ -163,7 +164,7 @@ if __name__ == '__main__':
     parser.add_argument("--disable_rag", action="store_true", default=False, help="Disable retrieval augmentation")
     parser.add_argument("--k", type=int, default=4, help="Number of retrieved captions to use in prefix")
     parser.add_argument("--retrieval_encoder", type=str, default="RN50x64", help="Visual encoder used for retrieving captions")
-    parser.add_argument("--template_path", type=str, default="src/template.txt", help="TXT file with template")
+    parser.add_argument("--template_path", type=str, default="/kaggle/working/smallcap/src/template.txt", help="TXT file with template")
 
     parser.add_argument("--n_epochs", type=int, default=10, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
