@@ -96,19 +96,23 @@ def load_data_for_training(annot_path, caps_path=None):
     data = {'train': [], 'val': []}
 
     for item in annotations:
-        file_name = item['file_name'].split('_')[-1]  # 修改此处，确保字段名正确
+        file_name = item['file_name']  # 直接获取 file_name
+        cocoid = str(item['id'])  # 使用 'id' 作为 cocoid
         if caps_path is not None:
-            caps = retrieved_caps[str(item['cocoid'])]
+            caps = retrieved_caps.get(cocoid, None)  # 获取 captions
         else:
             caps = None
+        
         samples = []
         for sentence in item['sentences']:
-            samples.append({'file_name': file_name, 'cocoid': str(item['cocoid']), 'caps': caps, 'text': ' '.join(sentence['tokens'])})
+            samples.append({'file_name': file_name, 'cocoid': cocoid, 'caps': caps, 'text': ' '.join(sentence['tokens'])})
+        
+        # 根据 split 类型分配数据
         if item['split'] == 'train' or item['split'] == 'restval':
             data['train'] += samples
         elif item['split'] == 'val':
             data['val'] += samples
-    return data 
+    return data
 
 def load_data_for_inference(annot_path, caps_path=None):
     annotations = json.load(open(annot_path))['images']
@@ -117,12 +121,16 @@ def load_data_for_inference(annot_path, caps_path=None):
     data = {'test': [], 'val': []}
 
     for item in annotations:
-        file_name = item['file_name'].split('_')[-1]  # 修改此处，确保字段名正确
+        file_name = item['file_name']  # 直接获取 file_name
+        cocoid = str(item['id'])  # 使用 'id' 作为 cocoid
         if caps_path is not None:
-            caps = retrieved_caps[str(item['cocoid'])]
+            caps = retrieved_caps.get(cocoid, None)  # 获取 captions
         else:
             caps = None
-        image = {'file_name': file_name, 'caps': caps, 'image_id': str(item['cocoid'])}
+        
+        image = {'file_name': file_name, 'caps': caps, 'image_id': cocoid}
+        
+        # 根据 split 类型分配数据
         if item['split'] == 'test':
             data['test'].append(image)
         elif item['split'] == 'val':
