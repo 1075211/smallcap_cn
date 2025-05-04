@@ -4,32 +4,24 @@ import torch
 import json
 import h5py
 import bisect
-import os
 
 CAPTION_LENGTH = 25
 SIMPLE_PREFIX = "This image shows "
 
-def prep_strings(text, tokenizer, template_path=None, retrieved_caps=None, k=None, is_test=False, max_length=None):
+def prep_strings(text, tokenizer, template=None, retrieved_caps=None, k=None, is_test=False, max_length=None):
+
     if is_test:
         padding = False
         truncation = False
     else:
         padding = True 
         truncation = True
-
-    # 加载模板文件
-    if template_path is not None and os.path.exists(template_path):
-        with open(template_path, 'r') as f:
-            template = f.read().strip() + ' '
-    else:
-        # 如果没有提供模板路径，则使用默认模板
-        template = SIMPLE_PREFIX
-
+    
     if retrieved_caps is not None:
         infix = '\n\n'.join(retrieved_caps[:k]) + '.'
         prefix = template.replace('||', infix)
     else:
-        prefix = template
+        prefix = SIMPLE_PREFIX
 
     prefix_ids = tokenizer.encode(prefix)
     len_prefix = len(prefix_ids)
@@ -44,12 +36,11 @@ def prep_strings(text, tokenizer, template_path=None, retrieved_caps=None, k=Non
     if padding:
         input_ids += [tokenizer.pad_token_id] * (max_length - len(input_ids))
         label_ids += [-100] * (max_length - len(label_ids))
-
+    
     if is_test:
         return input_ids
     else:  
         return input_ids, label_ids
-
 
 def postprocess_preds(pred, tokenizer):
     pred = pred.split(SIMPLE_PREFIX)[-1]
@@ -68,27 +59,18 @@ class TrainDataset(Dataset):
         self.max_target_length = max_caption_length
 
         if rag:
-            if template_path and os.path.exists(template_path):
-                with open(template_path, 'r') as f:
-                    self.template = f.read().strip() + ' '
-            else:
-                print(f"Template file at {template_path} not found. Using default template.")
-                self.template = SIMPLE_PREFIX  # Use default template
-
+            self.template = open(template_path).read().strip() + ' '
             self.max_target_length = (max_caption_length  # target caption
-                                     + max_caption_length * k  # retrieved captions
-                                     + len(tokenizer.encode(self.template))  # template
-                                     + len(tokenizer.encode('\n\n')) * (k-1)  # separator between captions
+                                     + max_caption_length * k # retrieved captions
+                                     + len(tokenizer.encode(self.template)) # template
+                                     + len(tokenizer.encode('\n\n')) * (k-1) # separator between captions
                                      )
             assert k is not None 
             self.k = k
-        else:
-            self.template = SIMPLE_PREFIX  # Use default template when RAG is not used
-
         self.rag = rag
 
     def __len__(self):
-        return len(self.df)  # Ensure the length of the dataset is correctly implemented
+        return len(self.df)
 
     def __getitem__(self, idx):
         text = self.df['text'][idx]
@@ -114,27 +96,19 @@ def load_data_for_training(annot_path, caps_path=None):
     data = {'train': [], 'val': []}
 
     for item in annotations:
-        file_name = item['file_name']  # 获取文件名
-        cocoid = str(item['id'])  # 使用 'id' 作为 cocoid
+        file_name = item['filename'].split('_')[-1]
         if caps_path is not None:
-            caps = retrieved_caps.get(cocoid, None)  # 获取 captions
+            caps = retrieved_caps[str(item['cocoid'])]
         else:
             caps = None
-        
-        # 获取 captions
-        captions = item.get('captions', [])  # 获取 'captions' 字段, 如果没有则为 []
-        
         samples = []
-        for caption in captions:
-            samples.append({'file_name': file_name, 'cocoid': cocoid, 'caps': caps, 'text': ' '.join(caption['tokens'])})
-
-        # 手动划分数据集，基于文件路径判断训练集和验证集
-        if 'train2017' in annot_path:  # 如果路径包含 'train2017'，为训练集
+        for sentence in item['sentences']:
+            samples.append({'file_name': file_name, 'cocoid': str(item['cocoid']), 'caps': caps, 'text': ' '.join(sentence['tokens'])})
+        if item['split'] == 'train' or item['split'] == 'restval':
             data['train'] += samples
-        elif 'val2017' in annot_path:  # 如果路径包含 'val2017'，为验证集
+        elif item['split'] == 'val':
             data['val'] += samples
-    
-    return data
+    return data 
 
 def load_data_for_inference(annot_path, caps_path=None):
     annotations = json.load(open(annot_path))['images']
@@ -143,19 +117,26 @@ def load_data_for_inference(annot_path, caps_path=None):
     data = {'test': [], 'val': []}
 
     for item in annotations:
-        file_name = item['file_name']  # 直接获取 file_name
-        cocoid = str(item['id'])  # 使用 'id' 作为 cocoid
+        file_name = item['filename'].split('_')[-1]
         if caps_path is not None:
-            caps = retrieved_caps.get(cocoid, None)  # 获取 captions
+            caps = retrieved_caps[str(item['cocoid'])]
         else:
             caps = None
-        
-        image = {'file_name': file_name, 'caps': caps, 'image_id': cocoid}
-        
-        # 根据文件路径判断数据集
-        if 'test2017' in annot_path:  # 如果路径包含 'test2017'，为测试集
+        image = {'file_name': file_name, 'caps': caps, 'image_id': str(item['cocoid'])}
+        if item['split'] == 'test':
             data['test'].append(image)
-        elif 'val2017' in annot_path:  # 如果路径包含 'val2017'，为验证集
+        elif item['split'] == 'val':
             data['val'].append(image)
 
     return data
+
+# 请确保路径如下所示（根据实际情况进行修改）：
+annotations_train_path = "/kaggle/input/coco-2017-dataset/coco2017/annotations/captions_train2017.json"
+annotations_val_path = "/kaggle/input/coco-2017-dataset/coco2017/annotations/captions_val2017.json"
+features_train_path = "/kaggle/working/features/train.hdf5"
+features_val_path = "/kaggle/working/features/val.hdf5"
+retrieved_caps_path = "/kaggle/working/retrieved_caps_resnet50x64.json"
+template_path = "src/template.txt"
+
+# 修改后的调用代码：
+data = load_data_for_training(annotations_train_path, caps_path=retrieved_caps_path)
