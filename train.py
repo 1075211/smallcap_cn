@@ -86,11 +86,13 @@ def get_model_and_auxiliaries(args):
     return model, tokenizer, feature_extractor
 
 def get_data(tokenizer, max_length, args):
+    # 这里传递的是注释和检索到的 captions 的路径
     data = load_data_for_training(args.annotations_path, args.captions_path)
     train_df = pd.DataFrame(data['train'])
 
+    # 根据 ablation_visual 选择使用哪个数据集
     if args.ablation_visual:
-        train_dataset =  AblationFeaturesDataset(
+        train_dataset = AblationFeaturesDataset(
                             df=train_df,
                             features_path=os.path.join(args.features_dir, 'train.hdf5'),
                             tokenizer=tokenizer,
@@ -149,7 +151,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Model Training')
     parser.add_argument("--features_dir", type=str, default="/kaggle/working/features/", help="Directory where cached input image features are stored")
-    parser.add_argument("--annotations_path", type=str, default="/kaggle/input/coco-2017-dataset/coco2017/annotations/captions_train2017.json", help="JSON file with annotations in Karpathy splits")
+    parser.add_argument("--annotations_path", type=str, default="/kaggle/input/coco-2017-dataset/annotations/captions_train2017.json", help="JSON file with annotations in Karpathy splits")
     parser.add_argument("--captions_path", type=str, default="/kaggle/working/retrieved_caps_resnet50x64.json", help="JSON file with retrieved captions")
     parser.add_argument("--experiments_dir", type=str, default="/kaggle/working/", help="Directory where trained models will be saved")
 
