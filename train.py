@@ -230,7 +230,18 @@ def main(args):
     model, tokenizer, feature_extractor = get_model_and_auxiliaries(args)
     
     # 加载数据
-    train_dataset = get_data(tokenizer, model.config.max_length, args)
+    data = load_data_for_training(args.annotations_path, args.captions_path)
+
+    train_dataset = TrainDataset(
+        df=pd.DataFrame(data['train']),
+        features_path=os.path.join(args.features_dir, 'train.hdf5'),
+        tokenizer=tokenizer,
+        rag=not args.disable_rag,
+        template_path=args.template_path,
+        k=args.k
+    )
+
+    #train_dataset = get_data(tokenizer, model.config.max_length, args)
 
     # 设置输出目录
     model_type = 'norag' if args.disable_rag else 'rag'
