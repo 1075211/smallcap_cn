@@ -96,27 +96,27 @@ def load_data_for_training(annot_path, caps_path=None):
     data = {'train': [], 'val': []}
 
     for item in annotations:
-        file_name = item['file_name']  # 直接获取 file_name
+        file_name = item['file_name']  # 获取文件名
         cocoid = str(item['id'])  # 使用 'id' 作为 cocoid
         if caps_path is not None:
             caps = retrieved_caps.get(cocoid, None)  # 获取 captions
         else:
             caps = None
         
-        # 这里假设 captions 是每个图像的描述字段
+        # 获取 captions
         captions = item.get('captions', [])  # 获取 'captions' 字段, 如果没有则为 []
         
         samples = []
         for caption in captions:
             samples.append({'file_name': file_name, 'cocoid': cocoid, 'caps': caps, 'text': ' '.join(caption['tokens'])})
-        
-        # 根据 split 类型分配数据
-        if item['split'] == 'train' or item['split'] == 'restval':
-            data['train'] += samples
-        elif item['split'] == 'val':
-            data['val'] += samples
-    return data
 
+        # 手动划分数据集，基于文件路径判断训练集和验证集
+        if 'train2017' in annot_path:  # 如果路径包含 'train2017'，为训练集
+            data['train'] += samples
+        elif 'val2017' in annot_path:  # 如果路径包含 'val2017'，为验证集
+            data['val'] += samples
+    
+    return data
 
 def load_data_for_inference(annot_path, caps_path=None):
     annotations = json.load(open(annot_path))['images']
