@@ -96,7 +96,7 @@ def load_data_for_training(annot_path, caps_path=None):
     data = {'train': [], 'val': []}
 
     for item in annotations:
-        file_name = item['filename'].split('_')[-1]
+        file_name = item['file_name'].split('_')[-1]  # 修改此处，确保字段名正确
         if caps_path is not None:
             caps = retrieved_caps[str(item['cocoid'])]
         else:
@@ -117,7 +117,7 @@ def load_data_for_inference(annot_path, caps_path=None):
     data = {'test': [], 'val': []}
 
     for item in annotations:
-        file_name = item['filename'].split('_')[-1]
+        file_name = item['file_name'].split('_')[-1]  # 修改此处，确保字段名正确
         if caps_path is not None:
             caps = retrieved_caps[str(item['cocoid'])]
         else:
@@ -128,5 +128,4 @@ def load_data_for_inference(annot_path, caps_path=None):
         elif item['split'] == 'val':
             data['val'].append(image)
 
-    return data      
-
+    return data
