@@ -7,8 +7,6 @@ import json
 import h5py
 import torch
 import argparse
-import pandas as pd
-import numpy as np
 from torch.utils.data import Dataset
 from PIL import Image
 from transformers import (
@@ -16,9 +14,10 @@ from transformers import (
     Seq2SeqTrainer, default_data_collator, Seq2SeqTrainingArguments,
     VisionEncoderDecoderModel, CLIPModel, CLIPVisionModel, EncoderDecoderModel
 )
-
-# 禁用wandb
+import pandas as pd
+import numpy as np
 os.environ["WANDB_DISABLED"] = "true"
+from src.utils import *
 
 # 常量定义
 CAPTION_LENGTH = 25
