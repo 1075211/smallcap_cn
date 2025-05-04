@@ -108,32 +108,36 @@ class TrainDataset(Dataset):
         }
 
 def load_data_for_training(annot_path, caps_path=None):
-    """加载训练数据"""
+    """加载COCO官方格式的训练数据"""
     print(f"Loading annotations from: {annot_path}")
-    if not os.path.exists(annot_path):
-        raise FileNotFoundError(f"Annotations file not found at {annot_path}")
-
     with open(annot_path) as f:
         annotations = json.load(f)
-    
-    # 加载检索字幕
+
+    # 构建 image_id -> captions 列表映射
+    id2captions = {}
+    for ann in annotations['annotations']:
+        cocoid = str(ann['image_id'])
+        id2captions.setdefault(cocoid, []).append(ann['caption'])
+
+    # 加载检索增强字幕
     retrieved_caps = None
-    if caps_path:
-        if not os.path.exists(caps_path):
-            print(f"Warning: Captions file not found at {caps_path}")
-        else:
-            with open(caps_path) as f:
-                retrieved_caps = json.load(f)
-            print(f"Loaded {len(retrieved_caps)} retrieved captions")
+    if caps_path and os.path.exists(caps_path):
+        with open(caps_path) as f:
+            retrieved_caps = json.load(f)
+        print(f"Loaded {len(retrieved_caps)} retrieved captions")
 
+    # 合并为训练/验证结构
     data = {'train': [], 'val': []}
-
     for item in annotations['images']:
         cocoid = str(item['id'])
         file_name = item['file_name']
         caps = retrieved_caps.get(cocoid, None) if retrieved_caps else None
-        
-        # 根据文件名判断数据集类型
+
+        # 检查 image 是否有 caption
+        if cocoid not in id2captions:
+            continue
+
+        # 根据文件名判断所属数据集
         if 'train' in file_name:
             split = 'train'
         elif 'val' in file_name:
@@ -141,11 +145,12 @@ def load_data_for_training(annot_path, caps_path=None):
         else:
             continue
 
-        for caption in item.get('captions', []):
+        # 每条 caption 单独作为一条训练样本
+        for caption in id2captions[cocoid]:
             data[split].append({
                 'cocoid': cocoid,
                 'file_name': file_name,
-                'text': ' '.join(caption['tokens']),
+                'text': caption,
                 'caps': caps
             })
 
