@@ -16,15 +16,12 @@ from src.opt import ThisOPTConfig, ThisOPTForCausalLM
 
 from src.utils import *
 
-# for attention with 28M params, we divide the attention dimensions by 1
-# for attention with 14M params, we divide the attention dimensions by 2, etc.
 PARAMS2REDUCE_FACTOR = {28: 1, 14: 2, 7: 4, 3.5: 8, 1.75: 16}
 PAD_TOKEN = '!'
 EOS_TOKEN = '.'
 CAPTION_LENGTH = 25
 
 def get_model_and_auxiliaries(args):
-    # register model types
     if "xglm" in args.decoder_name:
         AutoConfig.register("this_xglm", ThisXGLMConfig)
         AutoModel.register(ThisXGLMConfig, ThisXGLMForCausalLM)
@@ -43,7 +40,6 @@ def get_model_and_auxiliaries(args):
     AutoConfig.register("smallcap", SmallCapConfig)
     AutoModel.register(SmallCapConfig, SmallCap)
 
-    # create and configure model
     cross_attention_reduce_factor = PARAMS2REDUCE_FACTOR[args.attention_size]
 
     feature_extractor = CLIPFeatureExtractor.from_pretrained(args.encoder_name)
@@ -63,7 +59,6 @@ def get_model_and_auxiliaries(args):
     model.config.max_length = CAPTION_LENGTH   
     model.config.rag = not args.disable_rag
   
-    # freeze parameters
     for param in model.encoder.parameters():
         param.requires_grad = False
 
@@ -78,7 +73,6 @@ def get_model_and_auxiliaries(args):
                 if 'crossattention' not in name:
                     param.requires_grad = False
 
-    # count trainable parameters
     model_parameters = filter(lambda p: p.requires_grad, model.parameters())
     num_trainable_params = sum([np.prod(p.size()) for p in model_parameters])
     print('Training a model with {} trainable parameters.'.format(num_trainable_params))
@@ -86,18 +80,18 @@ def get_model_and_auxiliaries(args):
     return model, tokenizer, feature_extractor
 
 def get_data(tokenizer, max_length, args):
-    # 这里传递的是注释和检索到的 captions 的路径
+    # 确保路径正确
+    print(f"Annotations path: {args.annotations_path}")
+    print(f"Captions path: {args.captions_path}")
+
     data = load_data_for_training(args.annotations_path, args.captions_path)
     
-    # 检查数据是否正确加载
-    print(f"Loaded data with {len(data.get('train', []))} training samples.")  # 打印加载的训练样本数
-
+    print(f"Loaded data with {len(data.get('train', []))} training samples.")
     if len(data.get('train', [])) == 0:
         raise ValueError("No training data found. Please check the dataset paths and content.")
 
     train_df = pd.DataFrame(data['train'])
     
-    # 根据 ablation_visual 选择使用哪个数据集
     if args.ablation_visual:
         train_dataset = AblationFeaturesDataset(
                             df=train_df,
@@ -130,7 +124,7 @@ def main(args):
     else:
         output_dir = '{}_{}M_{}'.format(model_type, args.attention_size, args.decoder_name)
 
-    # ✅ 将输出目录改为 /kaggle/working/
+    # 输出目录修改为/kaggle/working/
     output_dir = os.path.join("/kaggle/working/", output_dir)
     
     training_args = Seq2SeqTrainingArguments(
