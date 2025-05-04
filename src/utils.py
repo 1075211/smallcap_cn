@@ -134,10 +134,10 @@ def load_data_for_inference(annot_path, caps_path=None):
         
         image = {'file_name': file_name, 'caps': caps, 'image_id': cocoid}
         
-        # 根据 split 类型分配数据
-        if item['split'] == 'test':
+        # 根据文件路径判断数据集
+        if 'test2017' in annot_path:  # 如果路径包含 'test2017'，为测试集
             data['test'].append(image)
-        elif item['split'] == 'val':
+        elif 'val2017' in annot_path:  # 如果路径包含 'val2017'，为验证集
             data['val'].append(image)
 
     return data
