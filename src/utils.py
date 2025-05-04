@@ -94,10 +94,16 @@ def load_data_for_training(annot_path, caps_path=None):
 
     for item in annotations:
         file_name = item['filename'].split('_')[-1]
+
+        # ✅ 添加健壮性检查
         if caps_path is not None:
-            caps = retrieved_caps[str(item['cocoid'])]
+            cocoid_str = str(item['cocoid'])
+            if cocoid_str not in retrieved_caps:
+                continue  # ⚠️ 跳过缺失检索结果的图像
+            caps = retrieved_caps[cocoid_str]
         else:
             caps = None
+
         samples = []
         for sentence in item['sentences']:
             samples.append({
@@ -110,7 +116,9 @@ def load_data_for_training(annot_path, caps_path=None):
             data['train'] += samples
         elif item['split'] == 'val':
             data['val'] += samples
-    return data 
+
+    return data
+
 
 def load_data_for_inference(annot_path, caps_path=None):
     annotations = json.load(open(annot_path))['images']
