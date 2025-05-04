@@ -88,14 +88,15 @@ def get_model_and_auxiliaries(args):
 def get_data(tokenizer, max_length, args):
     # 这里传递的是注释和检索到的 captions 的路径
     data = load_data_for_training(args.annotations_path, args.captions_path)
-    train_df = pd.DataFrame(data['train'])
+    
+    # 检查数据是否正确加载
+    print(f"Loaded data with {len(data.get('train', []))} training samples.")  # 打印加载的训练样本数
 
-    # 打印训练集的长度，确保数据加载正确
-    print(f"Loaded {len(train_df)} training samples.")
-
-    if len(train_df) == 0:
+    if len(data.get('train', [])) == 0:
         raise ValueError("No training data found. Please check the dataset paths and content.")
 
+    train_df = pd.DataFrame(data['train'])
+    
     # 根据 ablation_visual 选择使用哪个数据集
     if args.ablation_visual:
         train_dataset = AblationFeaturesDataset(
@@ -117,6 +118,7 @@ def get_data(tokenizer, max_length, args):
                             max_caption_length=max_length)
 
     return train_dataset
+
 
 def main(args):
     model, tokenizer, feature_extractor = get_model_and_auxiliaries(args)
