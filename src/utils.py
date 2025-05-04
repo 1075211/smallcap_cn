@@ -68,34 +68,24 @@ class TrainDataset(Dataset):
         self.max_target_length = max_caption_length
 
         if rag:
-            self.template = open(template_path).read().strip() + ' '
+            if template_path and os.path.exists(template_path):
+                with open(template_path, 'r') as f:
+                    self.template = f.read().strip() + ' '
+            else:
+                print(f"Template file at {template_path} not found. Using default template.")
+                self.template = SIMPLE_PREFIX  # Use default template
+
             self.max_target_length = (max_caption_length  # target caption
-                                     + max_caption_length * k # retrieved captions
-                                     + len(tokenizer.encode(self.template)) # template
-                                     + len(tokenizer.encode('\n\n')) * (k-1) # separator between captions
+                                     + max_caption_length * k  # retrieved captions
+                                     + len(tokenizer.encode(self.template))  # template
+                                     + len(tokenizer.encode('\n\n')) * (k-1)  # separator between captions
                                      )
             assert k is not None 
             self.k = k
-        self.rag = rag
-
-    def __len__(self):
-        return len(self.df)
-
-    def __getitem__(self, idx):
-        text = self.df['text'][idx]
-        if self.rag: 
-            caps = self.df['caps'][idx]
-            decoder_input_ids, labels = prep_strings(text, self.tokenizer, template=self.template,
-                                                     retrieved_caps=caps, k=self.k, max_length=self.max_target_length)
         else:
-            decoder_input_ids, labels = prep_strings(text, self.tokenizer, max_length=self.max_target_length)
-        # load precomputed features
-        encoder_outputs = self.features[self.df['cocoid'][idx]][()]
-        encoding = {"encoder_outputs": torch.tensor(encoder_outputs), 
-                    "decoder_input_ids": torch.tensor(decoder_input_ids),
-                    "labels": torch.tensor(labels)}
+            self.template = SIMPLE_PREFIX  # Use default template when RAG is not used
 
-        return encoding
+        self.rag = rag
 
 
 def load_data_for_training(annot_path, caps_path=None):
