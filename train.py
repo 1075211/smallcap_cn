@@ -1,5 +1,8 @@
 import os
 from src.gpt2 import ThisGPT2Config, ThisGPT2LMHeadModel
+from src.opt import ThisOPTConfig, ThisOPTForCausalLM
+from src.xglm import ThisXGLMConfig, ThisXGLMForCausalLM
+from src.vision_encoder_decoder import SmallCap, SmallCapConfig
 import json
 import h5py
 import torch
