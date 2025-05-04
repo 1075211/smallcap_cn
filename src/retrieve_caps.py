@@ -70,18 +70,27 @@ def encode_images(images, image_path, model, feature_extractor, device):
     image_ids = [i['image_id'] for i in images]
     bs = 64
     image_features = []
+    valid_image_ids = []
     for idx in tqdm(range(0, len(images), bs), desc="Encoding images"):
         batch = images[idx:idx+bs]
         image_input = []
+        batch_ids = []
         for i in batch:
+            img_path = os.path.join(image_path, i['file_name'])
+            if not os.path.exists(img_path):
+                print(f"Skipping missing image {i['file_name']}")
+                continue
             try:
-                img = Image.open(os.path.join(image_path, i['file_name'])).convert("RGB")
+                img = Image.open(img_path).convert("RGB")
                 image_input.append(feature_extractor(img))
+                batch_ids.append(i['image_id'])
             except Exception as e:
                 print(f"Error loading image {i['file_name']}: {e}")
-        with torch.no_grad():
-            image_features.append(model.encode_image(torch.tensor(np.stack(image_input)).to(device)).cpu().numpy())
-    return image_ids, np.concatenate(image_features)
+        if image_input:
+            with torch.no_grad():
+                image_features.append(model.encode_image(torch.tensor(np.stack(image_input)).to(device)).cpu().numpy())
+            valid_image_ids.extend(batch_ids)
+    return valid_image_ids, np.concatenate(image_features)
 
 def get_nns(captions, images, k=15):
     xq = images.astype(np.float32)
@@ -110,7 +119,7 @@ def filter_nns(nns, xb_image_ids, captions, xq_image_ids):
 def main():
     train_json = '/kaggle/input/coco-2017-dataset/coco2017/annotations/captions_train2017.json'
     val_json = '/kaggle/input/coco-2017-dataset/coco2017/annotations/captions_val2017.json'
-    image_path = '/kaggle/input/coco-2017-dataset/coco2017/train2017/'
+    root_image_dir = '/kaggle/input/coco-2017-dataset/coco2017/train2017/'
 
     print('Loading COCO 2017 data')
     images, captions = load_coco_data(train_json, val_json)
@@ -118,24 +127,52 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     clip_model, feature_extractor = clip.load("RN50x64", device=device)
 
-    print('Filtering short captions')
-    xb_image_ids, captions = filter_captions(captions)
-
-    print('Encoding captions')
-    encoded_captions = encode_captions(captions, clip_model, device)
-
-    print('Encoding images')
-    xq_image_ids, encoded_images = encode_images(images, image_path, clip_model, feature_extractor, device)
-
-    print('Building FAISS index and retrieving neighbors')
-    index, nns = get_nns(encoded_captions, encoded_images)
-    retrieved_caps = filter_nns(nns, xb_image_ids, captions, xq_image_ids)
-
     os.makedirs("/kaggle/working/datastore", exist_ok=True)
-    print('Saving index and retrieved captions to /kaggle/working/')
-    faiss.write_index(index, "/kaggle/working/datastore/coco_index")
-    json.dump(captions, open('/kaggle/working/datastore/coco_index_captions.json', 'w'))
-    json.dump(retrieved_caps, open('/kaggle/working/retrieved_caps_resnet50x64.json', 'w'))
+    captions_path = "/kaggle/working/datastore/filtered_captions.json"
+    encoded_captions_path = "/kaggle/working/datastore/encoded_captions.npy"
+    encoded_images_path = "/kaggle/working/datastore/encoded_images.npy"
+    xq_image_ids_path = "/kaggle/working/datastore/xq_image_ids.json"
+    faiss_index_path = "/kaggle/working/datastore/coco_index"
+    retrieved_caps_path = "/kaggle/working/retrieved_caps_resnet50x64.json"
+
+    # Step 1: Filter captions
+    if os.path.exists(captions_path):
+        print('Loading filtered captions')
+        xb_image_ids, captions = json.load(open(captions_path))
+    else:
+        print('Filtering short captions')
+        xb_image_ids, captions = filter_captions(captions)
+        json.dump([xb_image_ids, captions], open(captions_path, 'w'))
+
+    # Step 2: Encode captions
+    if os.path.exists(encoded_captions_path):
+        print('Loading encoded captions')
+        encoded_captions = np.load(encoded_captions_path)
+    else:
+        print('Encoding captions')
+        encoded_captions = encode_captions(captions, clip_model, device)
+        np.save(encoded_captions_path, encoded_captions)
+
+    # Step 3: Encode images
+    if os.path.exists(encoded_images_path) and os.path.exists(xq_image_ids_path):
+        print('Loading encoded images')
+        encoded_images = np.load(encoded_images_path)
+        xq_image_ids = json.load(open(xq_image_ids_path))
+    else:
+        print('Encoding images')
+        xq_image_ids, encoded_images = encode_images(images, root_image_dir, clip_model, feature_extractor, device)
+        np.save(encoded_images_path, encoded_images)
+        json.dump(xq_image_ids, open(xq_image_ids_path, 'w'))
+
+    # Step 4: Build or load index
+    if os.path.exists(retrieved_caps_path):
+        print('FAISS index and retrieval already done. Skipping.')
+    else:
+        print('Building FAISS index and retrieving neighbors')
+        index, nns = get_nns(encoded_captions, encoded_images)
+        retrieved_caps = filter_nns(nns, xb_image_ids, captions, xq_image_ids)
+        faiss.write_index(index, faiss_index_path)
+        json.dump(retrieved_caps, open(retrieved_caps_path, 'w'))
 
 if __name__ == '__main__':
     main()
