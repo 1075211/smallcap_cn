@@ -4,24 +4,32 @@ import torch
 import json
 import h5py
 import bisect
-
+import os
 CAPTION_LENGTH = 25
 SIMPLE_PREFIX = "This image shows "
 
-def prep_strings(text, tokenizer, template=None, retrieved_caps=None, k=None, is_test=False, max_length=None):
 
+def prep_strings(text, tokenizer, template_path=None, retrieved_caps=None, k=None, is_test=False, max_length=None):
     if is_test:
         padding = False
         truncation = False
     else:
         padding = True 
         truncation = True
-    
+
+    # 加载模板文件
+    if template_path is not None and os.path.exists(template_path):
+        with open(template_path, 'r') as f:
+            template = f.read().strip() + ' '
+    else:
+        # 如果没有提供模板路径，则使用默认模板
+        template = SIMPLE_PREFIX
+
     if retrieved_caps is not None:
         infix = '\n\n'.join(retrieved_caps[:k]) + '.'
         prefix = template.replace('||', infix)
     else:
-        prefix = SIMPLE_PREFIX
+        prefix = template
 
     prefix_ids = tokenizer.encode(prefix)
     len_prefix = len(prefix_ids)
@@ -36,11 +44,12 @@ def prep_strings(text, tokenizer, template=None, retrieved_caps=None, k=None, is
     if padding:
         input_ids += [tokenizer.pad_token_id] * (max_length - len(input_ids))
         label_ids += [-100] * (max_length - len(label_ids))
-    
+
     if is_test:
         return input_ids
     else:  
         return input_ids, label_ids
+
 
 def postprocess_preds(pred, tokenizer):
     pred = pred.split(SIMPLE_PREFIX)[-1]
