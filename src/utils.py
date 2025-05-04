@@ -103,9 +103,12 @@ def load_data_for_training(annot_path, caps_path=None):
         else:
             caps = None
         
+        # 这里假设 captions 是每个图像的描述字段
+        captions = item.get('captions', [])  # 获取 'captions' 字段, 如果没有则为 []
+        
         samples = []
-        for sentence in item['sentences']:
-            samples.append({'file_name': file_name, 'cocoid': cocoid, 'caps': caps, 'text': ' '.join(sentence['tokens'])})
+        for caption in captions:
+            samples.append({'file_name': file_name, 'cocoid': cocoid, 'caps': caps, 'text': ' '.join(caption['tokens'])})
         
         # 根据 split 类型分配数据
         if item['split'] == 'train' or item['split'] == 'restval':
@@ -113,6 +116,7 @@ def load_data_for_training(annot_path, caps_path=None):
         elif item['split'] == 'val':
             data['val'] += samples
     return data
+
 
 def load_data_for_inference(annot_path, caps_path=None):
     annotations = json.load(open(annot_path))['images']
