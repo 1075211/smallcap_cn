@@ -70,11 +70,11 @@ class TrainDataset(Dataset):
             else:
                 print(f"Warning: Template file not found at {template_path}, using default prefix")
                 self.template = SIMPLE_PREFIX
-
-            # 计算最大长度
-            self.max_target_length = (max_caption_length  # target caption
-                                    + max_caption_length * k  # retrieved captions
-                                    + len(tokenizer.encode(self.template))  # template
+        self.max_target_length = (
+            max_caption_length  # target caption
+            + max_caption_length * k  # retrieved captions
+            + len(tokenizer.encode(self.template))  # template
+        )
 
     def __len__(self):
         return len(self.df)
