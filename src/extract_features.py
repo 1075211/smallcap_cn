@@ -14,7 +14,7 @@ logging.set_verbosity_error()
 train_ann_path = '/kaggle/input/coco-2017-dataset/coco2017/annotations/captions_train2017.json'
 val_ann_path = '/kaggle/input/coco-2017-dataset/coco2017/annotations/captions_val2017.json'
 train_img_dir = '/kaggle/input/coco-2017-dataset/coco2017/train2017/'
-val_img_dir = '/kaggle/input/coco-2017-dataset/coco2017/test2017/'
+val_img_dir = '/kaggle/input/coco-2017-dataset/coco2017/val2017/'
 features_dir = '/kaggle/working/features/'  # 输出目录更新为 /kaggle/working/
 
 # 模型初始化
