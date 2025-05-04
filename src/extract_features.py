@@ -46,6 +46,9 @@ def encode_split(data, split, img_dir):
     bs = 256
     os.makedirs(features_dir, exist_ok=True)
     h5_file_path = os.path.join(features_dir, f'{split}.hdf5')
+    if os.path.exists(h5_file_path):
+        print(f"Skipping {split}, feature file already exists at: {h5_file_path}")
+        return
     h5py_file = h5py.File(h5_file_path, 'w')
 
     for idx in tqdm(range(0, len(df), bs), desc=f'Encoding {split}'):
