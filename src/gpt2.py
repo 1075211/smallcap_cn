@@ -94,6 +94,28 @@ class ThisGPT2Attention(GPT2Attention):
         new_shape = x.size()[:-2] + (num_heads * head_dim,)
         return x.view(*new_shape)  # (batch_size, seq_len, hidden_size)
 
+    def _attn(self, query, key, value, attention_mask=None, head_mask=None):
+        # 注意力分数
+        attn_weights = torch.matmul(query, key.transpose(-1, -2))
+    
+        if self.scale_attn_weights:
+            attn_weights = attn_weights / (value.size(-1) ** 0.5)
+    
+        if attention_mask is not None:
+            attn_weights = attn_weights + attention_mask
+    
+        attn_weights = nn.functional.softmax(attn_weights, dim=-1)
+    
+        if self.attn_dropout is not None:
+            attn_weights = self.attn_dropout(attn_weights)
+    
+        # 应用 head mask
+        if head_mask is not None:
+            attn_weights = attn_weights * head_mask
+    
+        attn_output = torch.matmul(attn_weights, value)
+        return attn_output, attn_weights
+
     def forward(
         self,
         hidden_states: Optional[Tuple[torch.FloatTensor]],
