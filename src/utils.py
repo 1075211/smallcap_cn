@@ -3,13 +3,11 @@ from PIL import Image
 import torch
 import json
 import h5py
-import bisect
 
 CAPTION_LENGTH = 25
 SIMPLE_PREFIX = "This image shows "
 
 def prep_strings(text, tokenizer, template=None, retrieved_caps=None, k=None, is_test=False, max_length=None):
-
     if is_test:
         padding = False
         truncation = False
@@ -31,7 +29,6 @@ def prep_strings(text, tokenizer, template=None, retrieved_caps=None, k=None, is
         text_ids = text_ids[:CAPTION_LENGTH]
     input_ids = prefix_ids + text_ids if not is_test else prefix_ids
 
-    # we ignore the prefix (minus one as the first subtoken in the prefix is not predicted)
     label_ids = [-100] * (len_prefix - 1) + text_ids + [tokenizer.eos_token_id] 
     if padding:
         input_ids += [tokenizer.pad_token_id] * (max_length - len(input_ids))
@@ -60,11 +57,12 @@ class TrainDataset(Dataset):
 
         if rag:
             self.template = open(template_path).read().strip() + ' '
-            self.max_target_length = (max_caption_length  # target caption
-                                     + max_caption_length * k # retrieved captions
-                                     + len(tokenizer.encode(self.template)) # template
-                                     + len(tokenizer.encode('\n\n')) * (k-1) # separator between captions
-                                     )
+            self.max_target_length = (
+                max_caption_length +                # target caption
+                max_caption_length * k +            # retrieved captions
+                len(tokenizer.encode(self.template)) + 
+                len(tokenizer.encode('\n\n')) * (k - 1)
+            )
             assert k is not None 
             self.k = k
         self.rag = rag
@@ -80,14 +78,13 @@ class TrainDataset(Dataset):
                                                      retrieved_caps=caps, k=self.k, max_length=self.max_target_length)
         else:
             decoder_input_ids, labels = prep_strings(text, self.tokenizer, max_length=self.max_target_length)
-        # load precomputed features
         encoder_outputs = self.features[self.df['cocoid'][idx]][()]
-        encoding = {"encoder_outputs": torch.tensor(encoder_outputs), 
-                    "decoder_input_ids": torch.tensor(decoder_input_ids),
-                    "labels": torch.tensor(labels)}
-
+        encoding = {
+            "encoder_outputs": torch.tensor(encoder_outputs), 
+            "decoder_input_ids": torch.tensor(decoder_input_ids),
+            "labels": torch.tensor(labels)
+        }
         return encoding
-
 
 def load_data_for_training(annot_path, caps_path=None):
     annotations = json.load(open(annot_path))['images']
@@ -96,14 +93,19 @@ def load_data_for_training(annot_path, caps_path=None):
     data = {'train': [], 'val': []}
 
     for item in annotations:
-        file_name = item['file_name']
+        file_name = item['filename'].split('_')[-1]
         if caps_path is not None:
-            caps = retrieved_caps[str(item['id'])]
+            caps = retrieved_caps[str(item['cocoid'])]
         else:
             caps = None
         samples = []
         for sentence in item['sentences']:
-            samples.append({'file_name': file_name, 'cocoid': str(item['cocoid']), 'caps': caps, 'text': ' '.join(sentence['tokens'])})
+            samples.append({
+                'file_name': file_name,
+                'cocoid': str(item['cocoid']),
+                'caps': caps,
+                'text': ' '.join(sentence['tokens'])
+            })
         if item['split'] == 'train' or item['split'] == 'restval':
             data['train'] += samples
         elif item['split'] == 'val':
@@ -122,21 +124,13 @@ def load_data_for_inference(annot_path, caps_path=None):
             caps = retrieved_caps[str(item['cocoid'])]
         else:
             caps = None
-        image = {'file_name': file_name, 'caps': caps, 'image_id': str(item['cocoid'])}
+        image = {
+            'file_name': file_name,
+            'caps': caps,
+            'image_id': str(item['cocoid'])
+        }
         if item['split'] == 'test':
             data['test'].append(image)
         elif item['split'] == 'val':
             data['val'].append(image)
-
-    return data
-
-# 请确保路径如下所示（根据实际情况进行修改）：
-annotations_train_path = "/kaggle/input/coco-2017-dataset/coco2017/annotations/captions_train2017.json"
-annotations_val_path = "/kaggle/input/coco-2017-dataset/coco2017/annotations/captions_val2017.json"
-features_train_path = "/kaggle/working/features/train.hdf5"
-features_val_path = "/kaggle/working/features/val.hdf5"
-retrieved_caps_path = "/kaggle/working/retrieved_caps_resnet50x64.json"
-template_path = "src/template.txt"
-
-# 修改后的调用代码：
-data = load_data_for_training(annotations_train_path, caps_path=retrieved_caps_path)
+    return data      
