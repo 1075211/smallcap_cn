@@ -5,9 +5,9 @@ import json
 import h5py
 import bisect
 import os
+
 CAPTION_LENGTH = 25
 SIMPLE_PREFIX = "This image shows "
-
 
 def prep_strings(text, tokenizer, template_path=None, retrieved_caps=None, k=None, is_test=False, max_length=None):
     if is_test:
@@ -86,6 +86,25 @@ class TrainDataset(Dataset):
             self.template = SIMPLE_PREFIX  # Use default template when RAG is not used
 
         self.rag = rag
+
+    def __len__(self):
+        return len(self.df)  # Ensure the length of the dataset is correctly implemented
+
+    def __getitem__(self, idx):
+        text = self.df['text'][idx]
+        if self.rag: 
+            caps = self.df['caps'][idx]
+            decoder_input_ids, labels = prep_strings(text, self.tokenizer, template=self.template,
+                                                     retrieved_caps=caps, k=self.k, max_length=self.max_target_length)
+        else:
+            decoder_input_ids, labels = prep_strings(text, self.tokenizer, max_length=self.max_target_length)
+        # load precomputed features
+        encoder_outputs = self.features[self.df['cocoid'][idx]][()]
+        encoding = {"encoder_outputs": torch.tensor(encoder_outputs), 
+                    "decoder_input_ids": torch.tensor(decoder_input_ids),
+                    "labels": torch.tensor(labels)}
+
+        return encoding
 
 
 def load_data_for_training(annot_path, caps_path=None):
