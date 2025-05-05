@@ -46,7 +46,7 @@ def load_flickr8k_captions(caption_path):
 
 
 def get_model_and_auxiliaries(args):
-    # 1. 加载分词器（使用绝对路径）
+    # 1. 加载分词器
     from sentencepiece import SentencePieceProcessor
     tokenizer = SentencePieceProcessor()
     model_path = "/kaggle/working/smallcap_cn/src/mengzi_gpt.model"
@@ -54,18 +54,16 @@ def get_model_and_auxiliaries(args):
     if not tokenizer.load(model_path):
         raise RuntimeError(f"无法加载分词器: {model_path}")
 
-    # 2. 处理特殊token - 使用SentencePiece原生方式
-    # 定义实际存在的特殊token（查看vocab文件确认）
-    PAD_TOKEN = "<pad>"  # 使用模型实际定义的pad token
-    EOS_TOKEN = "</s>"   # 使用模型实际定义的eos token
+    # 2. 使用模型原有的特殊token
+    UNK_TOKEN = "<unk>"
+    PAD_TOKEN = "</s>"  # 使用</s>作为pad token
+    EOS_TOKEN = "</s>"  # 使用</s>作为结束token
     
     pad_id = tokenizer.piece_to_id(PAD_TOKEN)
     eos_id = tokenizer.piece_to_id(EOS_TOKEN)
+    unk_id = tokenizer.piece_to_id(UNK_TOKEN)
     
-    if pad_id == tokenizer.unk_id():
-        raise ValueError(f"{PAD_TOKEN} 不是有效的特殊token，请检查vocab文件")
-    if eos_id == tokenizer.unk_id():
-        raise ValueError(f"{EOS_TOKEN} 不是有效的特殊token，请检查vocab文件")
+    print(f"特殊token ID: PAD={pad_id}, EOS={eos_id}, UNK={unk_id}")
 
     # 3. 初始化模型组件
     encoder = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
@@ -81,14 +79,15 @@ def get_model_and_auxiliaries(args):
         cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size]
     )
 
-    # 4. 构建模型（修正参数传递）
+    # 4. 构建模型
     model = SmallCap(
         encoder=encoder,
-        decoder=ThisGPT2LMHeadModel(decoder_config)
+        decoder=ThisGPT2LMHeadModel(decoder_config),
+        config=SmallCapConfig.from_encoder_decoder_configs(
+            encoder.config,
+            decoder_config
+        )
     )
-    
-    # 通过config设置cross_attention参数
-    model.config.cross_attention_reduce_factor = PARAMS2REDUCE_FACTOR[args.attention_size]
     
     # 5. 冻结编码器
     for param in model.encoder.parameters():
