@@ -43,8 +43,7 @@ def load_flickr8k_captions(caption_path):
             captions.append({'image_id': img_id, 'caption': caption})
     return captions
 
-from transformers import AutoTokenizer, CLIPModel
-from src.mengzi_gpt import MengziGPTConfig, MengziGPTLMHeadModel
+
 
 def get_model_and_auxiliaries(args):
     # 加载中文Tokenizer
