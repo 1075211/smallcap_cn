@@ -47,7 +47,7 @@ def load_flickr8k_captions(caption_path):
 
 def get_model_and_auxiliaries(args):
     # 加载中文Tokenizer
-    tokenizer = AutoTokenizer.from_pretrained("langboat/mengzi-gpt-neo")
+    tokenizer = AutoTokenizer.from_pretrained("Langboat/mengzi-gpt-neo-base")
     tokenizer.add_special_tokens({
         'pad_token': PAD_TOKEN,
         'eos_token': EOS_TOKEN
