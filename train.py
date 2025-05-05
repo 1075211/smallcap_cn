@@ -46,24 +46,40 @@ def load_flickr8k_captions(caption_path):
 
 
 def get_model_and_auxiliaries(args):
-    # 加载中文Tokenizer
-    tokenizer = AutoTokenizer.from_pretrained("bert-base-chinese")
-    tokenizer.add_special_tokens({
-        'pad_token': PAD_TOKEN,
-        'eos_token': EOS_TOKEN
-    })
+    # 1. 加载Mengzi分词器（需提前下载mengzi_gpt.model和mengzi_gpt.vocab）
+    from sentencepiece import SentencePieceProcessor
+    tokenizer = SentencePieceProcessor()
+    tokenizer.load('mengzi_gpt.model')  # 从本地加载
     
-    # 初始化模型
-    model = SmallCap.from_encoder_decoder_pretrained(
-        encoder_pretrained_model_name_or_path="openai/clip-vit-base-patch32",
-        decoder_pretrained_model_name_or_path="langboat/mengzi-gpt-neo-base",  # 使用中文GPT模型
+    # 添加特殊token
+    tokenizer.add_extra_ids(1)  # 用于[PAD]
+    tokenizer.add_extra_ids(1)  # 用于[SEP]
+    pad_id = tokenizer.vocab_size() - 2
+    eos_id = tokenizer.vocab_size() - 1
+    
+    # 2. 初始化模型
+    encoder = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+    
+    # 加载Mengzi配置（需自定义ThisGPT2Config）
+    decoder_config = ThisGPT2Config(
+        vocab_size=tokenizer.vocab_size() + 2,  # 原始词汇+特殊token
+        n_positions=CAPTION_LENGTH,
+        n_embd=768,
+        n_layer=6,
+        n_head=12,
+        cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size],
+        pad_token_id=pad_id,
+        eos_token_id=eos_id
+    )
+    
+    # 3. 构建SmallCap模型
+    model = SmallCap(
+        encoder=encoder,
+        decoder=ThisGPT2LMHeadModel(decoder_config),
         cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size]
     )
     
-    # 调整token嵌入
-    model.decoder.resize_token_embeddings(len(tokenizer))
-    
-    # 冻结编码器
+    # 4. 冻结编码器
     for param in model.encoder.parameters():
         param.requires_grad = False
         
