@@ -95,6 +95,33 @@ def get_nns(captions, images, k=15):
     D, I = index.search(xq, k)  # D: 距离, I: 索引
     
     return index, I
+
+def filter_nns(nns, caption_image_ids, captions, query_image_ids, k=7):
+    """
+    过滤检索结果，确保不返回同一图像的描述
+    
+    参数:
+        nns: 最近邻索引 (n_images, k)
+        caption_image_ids: 描述对应的图像ID列表
+        captions: 原始描述列表
+        query_image_ids: 查询图像ID列表
+        k: 最终保留的邻居数
+    
+    返回:
+        dict: {query_image_id: [caption1, caption2, ...]}
+    """
+    retrieved = {}
+    for i, img_id in enumerate(query_image_ids):
+        valid_captions = []
+        for nn_idx in nns[i]:
+            # 跳过来自同一图像的描述
+            if caption_image_ids[nn_idx] == img_id:
+                continue
+            valid_captions.append(captions[nn_idx])
+            if len(valid_captions) >= k:
+                break
+        retrieved[img_id] = valid_captions
+    return retrieved
     
 def main():
     # 数据路径
