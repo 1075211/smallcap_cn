@@ -43,37 +43,46 @@ def load_flickr8k_captions(caption_path):
             captions.append({'image_id': img_id, 'caption': caption})
     return captions
 
+from transformers import AutoTokenizer, CLIPModel
+from src.mengzi_gpt import MengziGPTConfig, MengziGPTLMHeadModel
+
 def get_model_and_auxiliaries(args):
-    # 注册自定义模型配置
-    AutoConfig.register("smallcap", SmallCapConfig)
-    AutoModel.register(SmallCapConfig, SmallCap)
-
-    # 使用中文Tokenizer（如bert-base-chinese）
-    tokenizer = AutoTokenizer.from_pretrained("bert-base-chinese")
-    tokenizer.pad_token = PAD_TOKEN
-    tokenizer.eos_token = EOS_TOKEN
-
-    # 加载预提取特征（无需CLIP提取器）
-    feature_extractor = None  # 直接使用预提取特征
-
-    # 初始化模型
-    model = SmallCap.from_encoder_decoder_pretrained(
-        args.encoder_name, 
-        args.decoder_name,
-        cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size]
+    # 加载中文Tokenizer
+    tokenizer = AutoTokenizer.from_pretrained("langboat/mengzi-gpt-neo")
+    tokenizer.add_special_tokens({
+        'pad_token': PAD_TOKEN,
+        'eos_token': EOS_TOKEN
+    })
+    
+    # 初始化Mengzi配置
+    config = MengziGPTConfig(
+        vocab_size=len(tokenizer),
+        n_positions=CAPTION_LENGTH,
+        n_embd=768,  # 与CLIP-ViT输出维度对齐
+        n_layer=12,   # 可调整层数减少计算量
+        n_head=12,
+        cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size],
     )
-    model.config.vocab_size = tokenizer.vocab_size
-    model.config.decoder_start_token_id = tokenizer.cls_token_id
-    model.config.pad_token_id = tokenizer.pad_token_id
-    model.config.eos_token_id = tokenizer.eos_token_id
-    model.config.max_length = CAPTION_LENGTH
-
-    # 冻结编码器（使用预提取特征）
+    
+    # 构建模型
+    encoder = CLIPModel.from_pretrained(args.encoder_name)
+    decoder = MengziGPTLMHeadModel(config)
+    
+    model = SmallCap(
+        encoder=encoder,
+        decoder=decoder,
+        cross_attention_reduce_factor=config.cross_attention_reduce_factor
+    )
+    
+    # 冻结编码器
     for param in model.encoder.parameters():
         param.requires_grad = False
-
-    print(f"可训练参数量: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
-    return model, tokenizer, feature_extractor
+        
+    # 投影层（CLIP-ViT输出768维 → Mengzi输入768维）
+    model.proj = nn.Linear(encoder.config.projection_dim, config.n_embd)
+    
+    print(f"可训练参数: {sum(p.numel() for p in model.parameters() if p.requires_grad)/1e6:.2f}M")
+    return model, tokenizer, None
 
 def get_data(tokenizer, max_length, args):
     """加载Flickr8k-CN数据"""
