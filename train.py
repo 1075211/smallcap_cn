@@ -16,7 +16,14 @@ from src.xglm import ThisXGLMConfig, ThisXGLMForCausalLM
 from src.opt import ThisOPTConfig, ThisOPTForCausalLM
 
 from src.utils import *
+from huggingface_hub import hf_hub_download
 
+hf_hub_download(repo_id="langboat/mengzi-gpt-neo-base", 
+               filename="mengzi_gpt.model",
+               local_dir=".")
+hf_hub_download(repo_id="langboat/mengzi-gpt-neo-base",
+               filename="mengzi_gpt.vocab",
+               local_dir=".")
 # 全局参数
 PARAMS2REDUCE_FACTOR = {28: 1, 14: 2, 7: 4, 3.5: 8, 1.75: 16}
 PAD_TOKEN = '[PAD]'  # 中文常用Pad Token
@@ -127,6 +134,14 @@ def main(args):
     # 初始化模型和数据
     model, tokenizer, _ = get_model_and_auxiliaries(args)
     train_dataset = get_data(tokenizer, CAPTION_LENGTH, args)
+
+    # 修改数据加载部分，适配SentencePiece分词器
+    def tokenize_function(examples):
+        # 手动实现tokenization
+        input_ids = [tokenizer.EncodeAsIds(text) for text in examples["caption"]]
+        return {"input_ids": input_ids}
+    
+    # 其他代码保持不变...
 
     # 训练配置
     training_args = Seq2SeqTrainingArguments(
