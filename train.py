@@ -26,11 +26,12 @@ CAPTION_LENGTH = 25
 def load_flickr8k_features(feature_path, id_path, shape_path):
     """加载Flickr8k-CN预提取特征"""
     with open(shape_path, 'r') as f:
-        shape = tuple(map(int, f.read().strip().split(',')))
+        shape = tuple(map(int, f.read().strip().split()))  # ✅ 用空格分割
     features = np.fromfile(feature_path, dtype=np.float32).reshape(shape)
     with open(id_path, 'r') as f:
         image_ids = [line.strip() for line in f]
     return features, image_ids
+
 
 def load_flickr8k_captions(caption_path):
     """加载中文描述并分词"""
