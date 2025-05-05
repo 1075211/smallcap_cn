@@ -2,13 +2,14 @@ import pandas as pd
 import numpy as np
 import os
 import argparse
+import jieba  # 中文分词
 os.environ["WANDB_DISABLED"] = "true"
 
 from transformers.models.auto.configuration_auto import AutoConfig
 from transformers import AutoTokenizer, CLIPFeatureExtractor, AutoModel, AutoModelForCausalLM
 from transformers import Seq2SeqTrainer, default_data_collator, Seq2SeqTrainingArguments
-
 from transformers import VisionEncoderDecoderModel, CLIPModel, CLIPVisionModel, EncoderDecoderModel
+
 from src.vision_encoder_decoder import SmallCap, SmallCapConfig
 from src.gpt2 import ThisGPT2Config, ThisGPT2LMHeadModel
 from src.xglm import ThisXGLMConfig, ThisXGLMForCausalLM
@@ -16,151 +17,143 @@ from src.opt import ThisOPTConfig, ThisOPTForCausalLM
 
 from src.utils import *
 
+# 全局参数
 PARAMS2REDUCE_FACTOR = {28: 1, 14: 2, 7: 4, 3.5: 8, 1.75: 16}
-PAD_TOKEN = '!'
-EOS_TOKEN = '.'
+PAD_TOKEN = '[PAD]'  # 中文常用Pad Token
+EOS_TOKEN = '[SEP]'  # 中文常用结束符
 CAPTION_LENGTH = 25
 
+def load_flickr8k_features(feature_path, id_path, shape_path):
+    """加载Flickr8k-CN预提取特征"""
+    with open(shape_path, 'r') as f:
+        shape = tuple(map(int, f.read().strip().split(',')))
+    features = np.fromfile(feature_path, dtype=np.float32).reshape(shape)
+    with open(id_path, 'r') as f:
+        image_ids = [line.strip() for line in f]
+    return features, image_ids
+
+def load_flickr8k_captions(caption_path):
+    """加载中文描述并分词"""
+    captions = []
+    with open(caption_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            parts = line.strip().split(' ', 1)
+            img_id = parts[0].split('#')[0]
+            caption = ' '.join(jieba.cut(parts[1]))  # 中文分词
+            captions.append({'image_id': img_id, 'caption': caption})
+    return captions
+
 def get_model_and_auxiliaries(args):
-    if "xglm" in args.decoder_name:
-        AutoConfig.register("this_xglm", ThisXGLMConfig)
-        AutoModel.register(ThisXGLMConfig, ThisXGLMForCausalLM)
-        AutoModelForCausalLM.register(ThisXGLMConfig, ThisXGLMForCausalLM)
-    elif "opt" in args.decoder_name:
-        AutoConfig.register("this_opt", ThisOPTConfig)
-        AutoModel.register(ThisOPTConfig, ThisOPTForCausalLM)
-        AutoModelForCausalLM.register(ThisOPTConfig, ThisOPTForCausalLM)
-    else:
-        AutoConfig.register("this_gpt2", ThisGPT2Config)
-        AutoModel.register(ThisGPT2Config, ThisGPT2LMHeadModel)
-        AutoModelForCausalLM.register(ThisGPT2Config, ThisGPT2LMHeadModel)
-    
+    # 注册自定义模型配置
     AutoConfig.register("smallcap", SmallCapConfig)
     AutoModel.register(SmallCapConfig, SmallCap)
 
-    cross_attention_reduce_factor = PARAMS2REDUCE_FACTOR[args.attention_size]
-
-    feature_extractor = CLIPFeatureExtractor.from_pretrained(args.encoder_name)
-    tokenizer = AutoTokenizer.from_pretrained(args.decoder_name)
+    # 使用中文Tokenizer（如bert-base-chinese）
+    tokenizer = AutoTokenizer.from_pretrained("bert-base-chinese")
     tokenizer.pad_token = PAD_TOKEN
     tokenizer.eos_token = EOS_TOKEN
 
-    model = SmallCap.from_encoder_decoder_pretrained(args.encoder_name, args.decoder_name,
-                                                     cross_attention_reduce_factor=cross_attention_reduce_factor)
-    model.config.vocab_size = model.config.decoder.vocab_size
-    model.config.decoder_start_token_id = None
-    model.config.pad_token_id = tokenizer.pad_token_id 
-    model.config.eos_token_id = tokenizer.eos_token_id 
+    # 加载预提取特征（无需CLIP提取器）
+    feature_extractor = None  # 直接使用预提取特征
 
-    if not args.disable_rag:
-        model.config.k = args.k
-        model.config.retrieval_encoder = args.retrieval_encoder   
-    model.config.max_length = CAPTION_LENGTH   
-    model.config.rag = not args.disable_rag
+    # 初始化模型
+    model = SmallCap.from_encoder_decoder_pretrained(
+        args.encoder_name, 
+        args.decoder_name,
+        cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size]
+    )
+    model.config.vocab_size = tokenizer.vocab_size
+    model.config.decoder_start_token_id = tokenizer.cls_token_id
+    model.config.pad_token_id = tokenizer.pad_token_id
+    model.config.eos_token_id = tokenizer.eos_token_id
+    model.config.max_length = CAPTION_LENGTH
 
+    # 冻结编码器（使用预提取特征）
     for param in model.encoder.parameters():
         param.requires_grad = False
 
-    if "xglm" in args.decoder_name or "opt" in args.decoder_name:
-        if not args.train_decoder:
-            for name, param in model.decoder.named_parameters():
-                if 'encoder_attn' not in name:
-                    param.requires_grad = False
-    else:
-        if not args.train_decoder:
-            for name, param in model.decoder.named_parameters():
-                if 'crossattention' not in name:
-                    param.requires_grad = False
-
-    model_parameters = filter(lambda p: p.requires_grad, model.parameters())
-    num_trainable_params = sum([np.prod(p.size()) for p in model_parameters])
-    print('Training a model with {} trainable parameters.'.format(num_trainable_params))
-
+    print(f"可训练参数量: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
     return model, tokenizer, feature_extractor
 
 def get_data(tokenizer, max_length, args):
-    data = load_data_for_training(args.annotations_path, args.captions_path)
-    train_df = pd.DataFrame(data['train'])
+    """加载Flickr8k-CN数据"""
+    # 加载特征和描述
+    features, image_ids = load_flickr8k_features(
+        os.path.join(args.features_dir, 'feature.bin'),
+        os.path.join(args.features_dir, 'id.txt'),
+        os.path.join(args.features_dir, 'shape.txt')
+    )
+    captions = load_flickr8k_captions(args.captions_path)
 
+    # 构建DataFrame
+    data = {'image_id': [], 'caption': [], 'feature_idx': []}
+    for idx, img_id in enumerate(image_ids):
+        img_captions = [c['caption'] for c in captions if c['image_id'] == img_id]
+        for cap in img_captions:
+            data['image_id'].append(img_id)
+            data['caption'].append(cap)
+            data['feature_idx'].append(idx)
+    df = pd.DataFrame(data)
+
+    # 构建Dataset
     if args.ablation_visual:
-        train_dataset = AblationFeaturesDataset(
-            df=train_df,
-            features_path=os.path.join(args.features_dir, 'train.hdf5'),
+        dataset = AblationFeaturesDataset(
+            df=df,
+            features=features,
             tokenizer=tokenizer,
-            rag=not args.disable_rag,
-            template_path=args.template_path,
-            k=args.k,
-            max_caption_length=max_length)
+            max_caption_length=max_length
+        )
     else:
-        train_dataset = TrainDataset(
-            df=train_df,
-            features_path=os.path.join(args.features_dir, 'train.hdf5'),
+        dataset = TrainDataset(
+            df=df,
+            features=features,
             tokenizer=tokenizer,
-            rag=not args.disable_rag,
-            template_path=args.template_path,
-            k=args.k,
-            max_caption_length=max_length)
-
-    return train_dataset
+            max_caption_length=max_length
+        )
+    return dataset
 
 def main(args):
-    model, tokenizer, feature_extractor = get_model_and_auxiliaries(args)
-    train_dataset = get_data(tokenizer, model.config.max_length, args)
+    # 初始化模型和数据
+    model, tokenizer, _ = get_model_and_auxiliaries(args)
+    train_dataset = get_data(tokenizer, CAPTION_LENGTH, args)
 
-    model_type = 'norag' if args.disable_rag else 'rag'
-    if args.ablation_visual:
-        output_dir = '{}_{}M_{}_ablation'.format(model_type, args.attention_size, args.decoder_name)
-    else:
-        output_dir = '{}_{}M_{}'.format(model_type, args.attention_size, args.decoder_name)
-
-    output_dir = os.path.join("/kaggle/working/", output_dir)
-    
+    # 训练配置
     training_args = Seq2SeqTrainingArguments(
-        num_train_epochs=args.n_epochs, 
-        per_device_train_batch_size=args.batch_size, 
-        gradient_accumulation_steps=args.gradient_steps,
+        output_dir=os.path.join(args.experiments_dir, f"flickr8k_cn_{args.decoder_name}"),
+        num_train_epochs=args.n_epochs,
+        per_device_train_batch_size=args.batch_size,
         learning_rate=args.lr,
         fp16=True,
+        logging_strategy="epoch",
         save_strategy="epoch",
-        save_total_limit=args.n_epochs, 
-        logging_strategy="epoch", 
-        output_dir=output_dir, 
-        overwrite_output_dir=True, 
+        save_total_limit=2
     )
 
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
-        data_collator=default_data_collator, 
         train_dataset=train_dataset,
-        tokenizer=feature_extractor,
+        tokenizer=tokenizer,
+        data_collator=default_data_collator
     )
-
     trainer.train()
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Model Training')
-    parser.add_argument("--features_dir", type=str, default="/kaggle/working/features/", help="Directory of image features")
-    parser.add_argument("--annotations_path", type=str, default="/kaggle/input/karpathy-splits/dataset_coco.json", help="Karpathy split JSON path")
-    parser.add_argument("--captions_path", type=str, default="/kaggle/working/retrieved_caps_resnet50x64.json", help="Retrieved captions JSON")
-    parser.add_argument("--experiments_dir", type=str, default="/kaggle/working/", help="Output directory")
+    parser = argparse.ArgumentParser()
+    # 数据路径
+    parser.add_argument("--features_dir", default="/kaggle/input/flickr8k-cn-wang/flickr8kzhbJanbosontrain/FeatureData/pyresnet152-pool5osl2")
+    parser.add_argument("--captions_path", default="/kaggle/input/flickr8k-cn-wang/flickr8kzhbJanbosontrain/TextData/seg.flickr8kzhbJanbosontrain.caption.txt")
+    parser.add_argument("--experiments_dir", default="/kaggle/working")
 
-    parser.add_argument("--encoder_name", type=str, default="openai/clip-vit-base-patch32", help="Encoder name")
-    parser.add_argument("--decoder_name", type=str, default="gpt2", help="Decoder name")
-    parser.add_argument("--attention_size", type=float, default=7, help="Cross attention parameter size")
-    parser.add_argument("--train_decoder", action="store_true", default=False, help="Train the decoder")
+    # 模型参数
+    parser.add_argument("--encoder_name", default="openai/clip-vit-base-patch32")  # 实际不使用，仅占位
+    parser.add_argument("--decoder_name", default="bert-base-chinese")  # 中文解码器
+    parser.add_argument("--attention_size", type=float, default=7)
 
-    parser.add_argument("--disable_rag", action="store_true", default=False, help="Disable RAG")
-    parser.add_argument("--k", type=int, default=4, help="Number of retrieved captions")
-    parser.add_argument("--retrieval_encoder", type=str, default="RN50x64", help="Retrieval encoder")
-    parser.add_argument("--template_path", type=str, default="/kaggle/working/smallcap/src/template.txt", help="Template path")
-
-    parser.add_argument("--n_epochs", type=int, default=10, help="Number of epochs")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
-    parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
-    parser.add_argument("--gradient_steps", type=int, default=1, help="Gradient accumulation steps")
-
-    parser.add_argument("--ablation_visual", action="store_true", default=False, help="Blank visual features")
+    # 训练参数
+    parser.add_argument("--n_epochs", type=int, default=10)
+    parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--batch_size", type=int, default=32)
 
     args = parser.parse_args()
     main(args)
