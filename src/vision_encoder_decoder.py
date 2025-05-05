@@ -155,10 +155,7 @@ VISION_ENCODER_DECODER_INPUTS_DOCSTRING = r"""
 class SmallCapConfig(VisionEncoderDecoderConfig):
     model_type = "smallcap"
 
-    def __init__(
-        self,
-        **kwargs,
-    ):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
 
