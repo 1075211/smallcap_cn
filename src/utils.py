@@ -66,42 +66,28 @@ def postprocess_preds(pred, tokenizer):
     return pred
 
 class TrainDataset(Dataset):
-    def __init__(self, df, features_path, tokenizer, rag=False, template_path=None, k=None, max_caption_length=25):
-        self.df = df
+    def __init__(self, df, features, tokenizer, max_caption_length=25):
+        self.df = df.reset_index(drop=True)
+        self.features = features  # 这里是 numpy ndarray，不是 h5py
         self.tokenizer = tokenizer
-        self.features = h5py.File(features_path, 'r')
-        self.max_target_length = max_caption_length
-
-        if rag:
-            self.template = open(template_path).read().strip() + ' '
-            self.max_target_length = (
-                max_caption_length +                # target caption
-                max_caption_length * k +            # retrieved captions
-                len(tokenizer.encode(self.template)) + 
-                len(tokenizer.encode('\n\n')) * (k - 1)
-            )
-            assert k is not None 
-            self.k = k
-        self.rag = rag
+        self.max_caption_length = max_caption_length
 
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, idx):
-        text = self.df['text'][idx]
-        if self.rag: 
-            caps = self.df['caps'][idx]
-            decoder_input_ids, labels = prep_strings(text, self.tokenizer, template=self.template,
-                                                     retrieved_caps=caps, k=self.k, max_length=self.max_target_length)
-        else:
-            decoder_input_ids, labels = prep_strings(text, self.tokenizer, max_length=self.max_target_length)
-        encoder_outputs = self.features[self.df['cocoid'][idx]][()]
-        encoding = {
-            "encoder_outputs": torch.tensor(encoder_outputs), 
-            "decoder_input_ids": torch.tensor(decoder_input_ids),
-            "labels": torch.tensor(labels)
+        row = self.df.iloc[idx]
+        caption = row['caption']
+        input_ids = self.tokenizer.EncodeAsIds(caption)
+        input_ids = input_ids[:self.max_caption_length]
+        input_ids += [self.tokenizer.pad_id()] * (self.max_caption_length - len(input_ids))
+
+        feature = self.features[row['feature_idx']]
+        return {
+            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "pixel_values": torch.tensor(feature, dtype=torch.float32),
         }
-        return encoding
+
 
 def load_data_for_training(annot_path, caps_path=None):
     annotations = json.load(open(annot_path))['images']
