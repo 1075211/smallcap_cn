@@ -136,8 +136,15 @@ def filter_nns(nns, caption_image_ids, captions, query_image_ids, k=7):
                 valid_captions.append(captions[nn_idx])
                 if len(valid_captions) >= k:
                     break
-        retrieved[img_id] = valid_captions
+        
+        # 检查检索到的描述是否为空
+        print(f"Image {img_id} found {len(valid_captions)} captions.")
+        if valid_captions:
+            retrieved[img_id] = valid_captions
+    
+    print(f"Total retrieved images with valid captions: {len(retrieved)}")
     return retrieved
+
 
 def main():
     try:
