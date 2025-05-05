@@ -1,6 +1,7 @@
+from transformers import AutoConfig
 from .gpt2 import ThisGPT2Config, ThisGPT2LMHeadModel
+from .vision_encoder_decoder import SmallCapConfig
 
-# 修改注册名称以区分原版
-AutoConfig.register("mengzi-gpt", ThisGPT2Config)
-AutoModel.register(ThisGPT2Config, ThisGPT2Model)
-AutoModelForCausalLM.register(ThisGPT2Config, ThisGPT2LMHeadModel)
+# 注册自定义配置
+AutoConfig.register("this_gpt2", ThisGPT2Config)
+AutoConfig.register("smallcap", SmallCapConfig)
