@@ -10,18 +10,11 @@ from transformers import GPT2Config, GPT2LMHeadModel, GPT2Model
 from transformers.modeling_utils import PreTrainedModel
 
 class ThisGPT2Config(GPT2Config):
-    model_type = "mengzi-gpt"  # 保持统一的模型类型标识
+    model_type = "mengzi-gpt"
     
-    def __init__(
-        self,
-        cross_attention_reduce_factor=1,
-        **kwargs
-    ):
+    def __init__(self, cross_attention_reduce_factor=1, **kwargs):
         super().__init__(**kwargs)
         self.cross_attention_reduce_factor = cross_attention_reduce_factor
-        self.activation_function = "gelu_new"
-        self.resid_pdrop = 0.1
-        self.embd_pdrop = 0.1
 
 class ThisGPT2Attention(nn.Module):
     def __init__(self, config, is_cross_attention=False, layer_idx=None):
