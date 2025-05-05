@@ -11,24 +11,32 @@ from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 def load_flickr8k_data(feature_dir, caption_path):
-    """加载Flickr8k-CN数据：预提取特征和中文描述"""
-    # 1. 加载图像特征和ID
-    features = np.fromfile(os.path.join(feature_dir, "feature.bin"), dtype=np.float32)
-    with open(os.path.join(feature_dir, "id.txt"), 'r') as f:
+    """加载Flickr8k-CN预提取特征和描述"""
+    # 1. 加载图像特征
+    shape_path = os.path.join(feature_dir, "shape.txt")
+    with open(shape_path, 'r') as f:
+        shape = tuple(map(int, f.read().strip().split()))  # 改为空格分隔
+    
+    features = np.fromfile(
+        os.path.join(feature_dir, "feature.bin"), 
+        dtype=np.float32
+    ).reshape(shape)
+    
+    # 2. 加载图像ID
+    id_path = os.path.join(feature_dir, "id.txt")
+    with open(id_path, 'r') as f:
         image_ids = [line.strip() for line in f]
-    with open(os.path.join(feature_dir, "shape.txt"), 'r') as f:
-        shape = tuple(map(int, f.read().strip().split(',')))
-    features = features.reshape(shape)  # (N, D)
-
-    # 2. 加载中文描述
+    
+    # 3. 加载中文描述
     captions = []
     with open(caption_path, 'r', encoding='utf-8') as f:
         for line in f:
-            parts = line.strip().split(' ', 1)
-            img_id = parts[0].split('#')[0]  # 提取图片ID（如 "123456.jpg"）
-            caption = parts[1]  # 中文描述
-            captions.append({'image_id': img_id, 'caption': caption})
-
+            parts = line.strip().split(' ', 1)  # 只分割第一个空格
+            if len(parts) == 2:
+                img_id = parts[0].split('#')[0]
+                caption = parts[1]
+                captions.append({'image_id': img_id, 'caption': caption})
+    
     return image_ids, features, captions
 
 def filter_captions(captions, max_length=25):
