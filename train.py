@@ -16,14 +16,7 @@ from src.xglm import ThisXGLMConfig, ThisXGLMForCausalLM
 from src.opt import ThisOPTConfig, ThisOPTForCausalLM
 
 from src.utils import *
-from huggingface_hub import hf_hub_download
 
-hf_hub_download(repo_id="langboat/mengzi-gpt-neo-base", 
-               filename="mengzi_gpt.model",
-               local_dir=".")
-hf_hub_download(repo_id="langboat/mengzi-gpt-neo-base",
-               filename="mengzi_gpt.vocab",
-               local_dir=".")
 # 全局参数
 PARAMS2REDUCE_FACTOR = {28: 1, 14: 2, 7: 4, 3.5: 8, 1.75: 16}
 PAD_TOKEN = '[PAD]'  # 中文常用Pad Token
