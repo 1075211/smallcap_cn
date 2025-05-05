@@ -7,6 +7,23 @@ import h5py
 CAPTION_LENGTH = 25
 SIMPLE_PREFIX = "This image shows "
 
+import jieba
+
+def preprocess_chinese(text):
+    """中文分词处理"""
+    text = text.replace(" ", "").replace("\n", "")
+    return " ".join(jieba.lcut(text))
+
+def load_flickr8k_captions(caption_path):
+    captions = []
+    with open(caption_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            parts = line.strip().split(' ', 1)
+            img_id = parts[0].split('#')[0]
+            caption = preprocess_chinese(parts[1])
+            captions.append({'image_id': img_id, 'caption': caption})
+    return captions
+    
 def prep_strings(text, tokenizer, template=None, retrieved_caps=None, k=None, is_test=False, max_length=None):
     if is_test:
         padding = False
