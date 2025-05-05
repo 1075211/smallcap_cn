@@ -122,7 +122,7 @@ def get_nns(captions, images, k=15):
     D, I = index.search(xq, k)
     return index, I
 
-def filter_nns(nns, caption_image_ids, captions, query_image_ids, k=7):
+def filter_nns(nns, caption_image_ids, captions, query_image_ids, k=3):
     """过滤检索结果（优化处理速度）"""
     retrieved = {}
     caption_id_map = {cid:i for i,cid in enumerate(caption_image_ids)}
