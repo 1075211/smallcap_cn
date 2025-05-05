@@ -54,7 +54,7 @@ def get_model_and_auxiliaries(args):
     })
     
     # 初始化Mengzi配置
-    config = MengziGPTConfig(
+    config = ThisGPT2Config(
         vocab_size=len(tokenizer),
         n_positions=CAPTION_LENGTH,
         n_embd=768,  # 与CLIP-ViT输出维度对齐
