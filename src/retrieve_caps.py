@@ -173,15 +173,16 @@ def main():
         
         # 显式检查维度
         if encoded_captions.shape[1] != encoded_features.shape[1]:
-        print(f"警告：维度不匹配！正在调整图像特征维度...")
-        # 如果维度较小，通过填充0调整
-        if encoded_features.shape[1] < encoded_captions.shape[1]:
-            pad_width = [(0,0), (0, encoded_captions.shape[1] - encoded_features.shape[1])]
-            encoded_features = np.pad(encoded_features, pad_width, mode='constant')
-        # 如果维度较大，截取
-        else:
-            encoded_features = encoded_features[:, :encoded_captions.shape[1]]
-        
+            print(f"警告：维度不匹配！正在调整图像特征维度...")
+            # 如果维度较小，通过填充0调整
+            if encoded_features.shape[1] < encoded_captions.shape[1]:
+                pad_width = [(0,0), (0, encoded_captions.shape[1] - encoded_features.shape[1])]
+                encoded_features = np.pad(encoded_features, pad_width, mode='constant')
+            # 如果维度较大，截取
+            else:
+                encoded_features = encoded_features[:, :encoded_captions.shape[1]]
+                print(f"调整后图像特征形状：{encoded_features.shape}")
+            
         # 4. 构建FAISS索引并检索
         print('6. 构建FAISS索引并检索')
         index, nns = get_nns(encoded_captions, encoded_features)
