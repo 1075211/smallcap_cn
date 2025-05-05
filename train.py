@@ -68,10 +68,11 @@ def get_model_and_auxiliaries(args):
     encoder = CLIPModel.from_pretrained(args.encoder_name)
     decoder = MengziGPTLMHeadModel(config)
     
-    model = SmallCap(
-        encoder=encoder,
-        decoder=decoder,
-        cross_attention_reduce_factor=config.cross_attention_reduce_factor
+    # 初始化时指定decoder_name为"mengzi-gpt"
+    model = SmallCap.from_encoder_decoder_pretrained(
+        encoder_pretrained_model_name_or_path="openai/clip-vit-base-patch32",
+        decoder_pretrained_model_name_or_path="langboat/mengzi-gpt-neo",  # 自动识别为mengzi-gpt类型
+        cross_attention_reduce_factor=4
     )
     
     # 冻结编码器
