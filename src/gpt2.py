@@ -1,16 +1,16 @@
 # coding=utf-8
-from transformers import GPT2Config, GPT2LMHeadModel, GPT2Model, GPT2Attention, GPT2Block
-from transformers.activations import ACT2FN
+# Copyright 2018 The OpenAI Team Authors and HuggingFace Inc. team.
+# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+# Modified for Chinese Mengzi-GPT support
+
 import math
 import torch
 import torch.nn as nn
+from transformers import GPT2Config, GPT2LMHeadModel, GPT2Model
 from transformers.modeling_utils import PreTrainedModel
-from transformers.utils import logging
 
-logger = logging.get_logger(__name__)
-
-class MengziGPTConfig(GPT2Config):
-    model_type = "mengzi-gpt"
+class ThisGPT2Config(GPT2Config):
+    model_type = "mengzi-gpt"  # 修改模型类型标识
     
     def __init__(
         self,
@@ -19,57 +19,60 @@ class MengziGPTConfig(GPT2Config):
     ):
         super().__init__(**kwargs)
         self.cross_attention_reduce_factor = cross_attention_reduce_factor
-        # 中文模型特定参数
-        self.activation_function = "gelu_new"
-        self.resid_pdrop = 0.1
+        # 中文模型特有参数
+        self.activation_function = "gelu_new"  # 更适合中文的激活函数
+        self.resid_pdrop = 0.1  # 调整dropout率
         self.embd_pdrop = 0.1
 
-class MengziGPTAttention(GPT2Attention):
+class ThisGPT2Attention(nn.Module):
     def __init__(self, config, is_cross_attention=False, layer_idx=None):
-        super().__init__(config, is_cross_attention, layer_idx)
-        
+        super().__init__()
         self.cross_attention_reduce_factor = config.cross_attention_reduce_factor
         
-        if self.is_cross_attention:
-            # 调整跨注意力层的维度
-            self.c_attn = nn.Linear(config.hidden_size, int(2 * config.hidden_size / self.cross_attention_reduce_factor))
-            self.q_attn = nn.Linear(config.hidden_size, int(config.hidden_size / self.cross_attention_reduce_factor))
-            self.c_proj = nn.Linear(int(config.hidden_size / self.cross_attention_reduce_factor), config.hidden_size)
+        # 修改注意力头维度计算方式（适配中文长文本）
+        self.embed_dim = config.hidden_size
+        self.num_heads = config.num_attention_heads
+        self.head_dim = self.embed_dim // self.num_heads
+        if is_cross_attention:
+            self.head_dim = int(self.head_dim / self.cross_attention_reduce_factor)
+
+        # 线性层维度调整
+        if is_cross_attention:
+            self.q_attn = nn.Linear(self.embed_dim, self.embed_dim // self.cross_attention_reduce_factor)
+            self.c_attn = nn.Linear(self.embed_dim, 2 * self.embed_dim // self.cross_attention_reduce_factor)
+            self.c_proj = nn.Linear(self.embed_dim // self.cross_attention_reduce_factor, self.embed_dim)
         else:
-            self.c_attn = nn.Linear(config.hidden_size, 3 * config.hidden_size)
-            self.c_proj = nn.Linear(config.hidden_size, config.hidden_size)
+            self.c_attn = nn.Linear(self.embed_dim, 3 * self.embed_dim)
+            self.c_proj = nn.Linear(self.embed_dim, self.embed_dim)
 
         # 中文注意力优化
-        self.scale_factor = math.sqrt(config.hidden_size / config.num_attention_heads)
+        self.scale_factor = math.sqrt(self.head_dim)  # 调整缩放因子
 
-    def _attn(self, query, key, value, attention_mask=None, head_mask=None):
+    def _attn(self, query, key, value, attention_mask=None):
         attn_weights = torch.matmul(query, key.transpose(-1, -2)) / self.scale_factor
-        
         if attention_mask is not None:
             attn_weights = attn_weights + attention_mask
-            
         attn_weights = torch.softmax(attn_weights, dim=-1)
-        attn_output = torch.matmul(attn_weights, value)
-        
-        return attn_output, attn_weights
+        return torch.matmul(attn_weights, value)
 
-class MengziGPTBlock(GPT2Block):
+class ThisGPT2Block(nn.Module):
     def __init__(self, config, layer_idx=None):
-        super().__init__(config, layer_idx)
-        self.attn = MengziGPTAttention(config, layer_idx=layer_idx)
-        if config.add_cross_attention:
-            self.crossattention = MengziGPTAttention(config, is_cross_attention=True, layer_idx=layer_idx)
+        super().__init__()
+        self.attn = ThisGPT2Attention(config, layer_idx=layer_idx)
+        # 增强的FFN（适配中文语义）
         self.mlp = nn.Sequential(
             nn.Linear(config.hidden_size, 4 * config.hidden_size),
-            ACT2FN[config.activation_function],
+            nn.GELU(),
             nn.Linear(4 * config.hidden_size, config.hidden_size),
             nn.Dropout(config.resid_pdrop),
         )
+        if config.add_cross_attention:
+            self.crossattention = ThisGPT2Attention(config, is_cross_attention=True, layer_idx=layer_idx)
 
-class MengziGPTModel(GPT2Model):
+class ThisGPT2Model(GPT2Model):
     def __init__(self, config):
         super().__init__(config)
-        self.h = nn.ModuleList([MengziGPTBlock(config, layer_idx=i) for i in range(config.num_hidden_layers)])
+        self.h = nn.ModuleList([ThisGPT2Block(config, layer_idx=i) for i in range(config.num_hidden_layers)])
         
     def forward(self, input_ids=None, attention_mask=None, encoder_hidden_states=None):
         # 中文文本的特殊处理
@@ -81,13 +84,14 @@ class MengziGPTModel(GPT2Model):
             encoder_hidden_states=encoder_hidden_states
         )
 
-class MengziGPTLMHeadModel(GPT2LMHeadModel):
-    config_class = MengziGPTConfig
+class ThisGPT2LMHeadModel(GPT2LMHeadModel):
+    config_class = ThisGPT2Config
     
     def __init__(self, config):
         super().__init__(config)
-        self.transformer = MengziGPTModel(config)
-        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        self.transformer = ThisGPT2Model(config)
+        # 适配中文词汇表
+        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         
     def prepare_inputs_for_generation(self, input_ids, past=None, **kwargs):
         return {
