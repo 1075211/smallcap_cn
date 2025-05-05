@@ -53,29 +53,12 @@ def get_model_and_auxiliaries(args):
         'eos_token': EOS_TOKEN
     })
     
-    # 初始化GPT-2配置
-    config = ThisGPT2Config(
-        vocab_size=len(tokenizer),
-        n_positions=CAPTION_LENGTH,
-        n_embd=768,
-        n_layer=6,
-        n_head=12,
-        cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size],
-    )
-    
-    # 方法1：使用预训练路径初始化
+    # 初始化模型
     model = SmallCap.from_encoder_decoder_pretrained(
         encoder_pretrained_model_name_or_path="openai/clip-vit-base-patch32",
-        decoder_pretrained_model_name_or_path=None,  # 必须显式指定None
-        decoder_config=config
+        decoder_pretrained_model_name_or_path="langboat/mengzi-gpt-neo-base",  # 使用中文GPT模型
+        cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size]
     )
-    
-    # 方法2：或分别初始化encoder/decoder后组装
-    """
-    encoder = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-    decoder = ThisGPT2LMHeadModel(config)
-    model = SmallCap(encoder=encoder, decoder=decoder)
-    """
     
     # 调整token嵌入
     model.decoder.resize_token_embeddings(len(tokenizer))
@@ -84,9 +67,6 @@ def get_model_and_auxiliaries(args):
     for param in model.encoder.parameters():
         param.requires_grad = False
         
-    # 添加投影层
-    model.proj = nn.Linear(768, config.n_embd)
-    
     print(f"可训练参数: {sum(p.numel() for p in model.parameters() if p.requires_grad)/1e6:.2f}M")
     return model, tokenizer, None
 
@@ -136,10 +116,10 @@ def main(args):
     training_args = Seq2SeqTrainingArguments(
         output_dir=args.experiments_dir,
         num_train_epochs=args.n_epochs,
-        per_device_train_batch_size=args.batch_size,
-        gradient_accumulation_steps=2,  # 小batch时使用
+        per_device_train_batch_size=args.batch_size, 
         learning_rate=args.lr,
         fp16=True,
+        gradient_accumulation_steps=2,
         logging_steps=100,
         save_strategy="epoch"
     )
