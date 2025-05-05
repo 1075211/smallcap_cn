@@ -47,38 +47,45 @@ def load_flickr8k_captions(caption_path):
 
 def get_model_and_auxiliaries(args):
     # 加载中文Tokenizer
-    tokenizer = AutoTokenizer.from_pretrained("bert-base-chinese")  # 使用中文BERT分词器
+    tokenizer = AutoTokenizer.from_pretrained("bert-base-chinese")
     tokenizer.add_special_tokens({
         'pad_token': PAD_TOKEN,
         'eos_token': EOS_TOKEN
     })
     
-    # 初始化GPT-2配置（适配中文）
+    # 初始化GPT-2配置
     config = ThisGPT2Config(
         vocab_size=len(tokenizer),
         n_positions=CAPTION_LENGTH,
-        n_embd=768,  # 与CLIP-ViT输出维度对齐
-        n_layer=6,   # 减少层数加快训练
+        n_embd=768,
+        n_layer=6,
         n_head=12,
         cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size],
     )
     
-    # 使用SmallCap统一初始化
+    # 方法1：使用预训练路径初始化
     model = SmallCap.from_encoder_decoder_pretrained(
         encoder_pretrained_model_name_or_path="openai/clip-vit-base-patch32",
-        decoder_config=config,  # 直接传入配置
-        cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size]
+        decoder_pretrained_model_name_or_path=None,  # 必须显式指定None
+        decoder_config=config
     )
     
-    # 调整decoder的token嵌入层
+    # 方法2：或分别初始化encoder/decoder后组装
+    """
+    encoder = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+    decoder = ThisGPT2LMHeadModel(config)
+    model = SmallCap(encoder=encoder, decoder=decoder)
+    """
+    
+    # 调整token嵌入
     model.decoder.resize_token_embeddings(len(tokenizer))
     
     # 冻结编码器
     for param in model.encoder.parameters():
         param.requires_grad = False
         
-    # 投影层（确保维度匹配）
-    model.proj = nn.Linear(768, config.n_embd)  # CLIP输出768维
+    # 添加投影层
+    model.proj = nn.Linear(768, config.n_embd)
     
     print(f"可训练参数: {sum(p.numel() for p in model.parameters() if p.requires_grad)/1e6:.2f}M")
     return model, tokenizer, None
@@ -127,17 +134,14 @@ def main(args):
 
     # 训练配置
     training_args = Seq2SeqTrainingArguments(
-        output_dir=os.path.join(args.experiments_dir, "flickr8k_cn"),
+        output_dir=args.experiments_dir,
         num_train_epochs=args.n_epochs,
         per_device_train_batch_size=args.batch_size,
+        gradient_accumulation_steps=2,  # 小batch时使用
         learning_rate=args.lr,
         fp16=True,
-        gradient_accumulation_steps=2,  # 小batch时使用
-        logging_strategy="steps",
         logging_steps=100,
-        save_strategy="epoch",
-        save_total_limit=2,
-        prediction_loss_only=True  # 仅计算loss加速训练
+        save_strategy="epoch"
     )
 
     trainer = Seq2SeqTrainer(
