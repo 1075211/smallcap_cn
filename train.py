@@ -46,53 +46,43 @@ def load_flickr8k_captions(caption_path):
 
 
 def get_model_and_auxiliaries(args):
-    # 1. 确保分词器文件存在并获取正确路径
-    def get_tokenizer_path(filename):
-        # 尝试多个可能路径
-        possible_paths = [
-            os.path.join("/kaggle/working/smallcap_cn/src/", filename),
-            os.path.join(os.path.dirname(__file__), filename),
-            filename  # 当前目录
-        ]
-        
-        for path in possible_paths:
-            if os.path.exists(path):
-                print(f"找到分词器文件: {path}")
-                return path
-        raise FileNotFoundError(f"找不到 {filename}，尝试过的路径: {possible_paths}")
-
-    # 2. 加载Mengzi分词器
+    # 1. 加载分词器
     from sentencepiece import SentencePieceProcessor
     tokenizer = SentencePieceProcessor()
     
-    try:
-        model_path = get_tokenizer_path("mengzi_gpt.model")
-        tokenizer.load(model_path)
-    except Exception as e:
-        print(f"加载分词器失败: {e}")
-        print("尝试从Hugging Face Hub下载...")
-        from huggingface_hub import hf_hub_download
-        try:
-            model_path = hf_hub_download(
-                repo_id="langboat/mengzi-gpt-neo-base",
-                filename="mengzi_gpt.model",
-                local_dir="."
-            )
-            tokenizer.load(model_path)
-        except Exception as e:
-            raise RuntimeError(f"无法加载分词器: {e}")
+    # 使用绝对路径确保能找到文件
+    model_path = "/kaggle/working/smallcap_cn/src/mengzi_gpt.model"
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"分词器文件不存在: {model_path}")
+    
+    if not tokenizer.load(model_path):
+        raise RuntimeError("分词器加载失败")
 
-    # 3. 处理特殊token
-    original_vocab_size = tokenizer.vocab_size()
-    tokenizer.add_extra_ids(2)  # 为[PAD]和[SEP]预留位置
-    pad_id = original_vocab_size
-    eos_id = original_vocab_size + 1
+    # 2. 处理特殊token - SentencePiece原生方式
+    # 获取当前词汇表大小
+    original_vocab_size = tokenizer.get_piece_size()
+    
+    # 定义特殊token（注意：SentencePiece需要提前在模型训练时定义好特殊token）
+    PAD_TOKEN = "[PAD]"
+    EOS_TOKEN = "[SEP]"
+    
+    # 检查特殊token是否已存在
+    pad_id = tokenizer.piece_to_id(PAD_TOKEN)
+    eos_id = tokenizer.piece_to_id(EOS_TOKEN)
+    
+    if pad_id == tokenizer.unk_id():
+        print(f"警告: {PAD_TOKEN} 不是预定义的特殊token，将使用<unk>代替")
+        pad_id = tokenizer.unk_id()
+    
+    if eos_id == tokenizer.unk_id():
+        print(f"警告: {EOS_TOKEN} 不是预定义的特殊token，将使用<unk>代替")
+        eos_id = tokenizer.unk_id()
 
-    # 4. 初始化模型组件
+    # 3. 初始化模型
     encoder = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
     
     decoder_config = ThisGPT2Config(
-        vocab_size=tokenizer.vocab_size(),  # 包含新增的特殊token
+        vocab_size=original_vocab_size,  # 使用原始词汇表大小
         n_positions=CAPTION_LENGTH,
         n_embd=768,
         n_layer=6,
@@ -102,20 +92,18 @@ def get_model_and_auxiliaries(args):
         eos_token_id=eos_id
     )
     
-    # 5. 构建完整模型
+    # 4. 构建模型
     model = SmallCap(
         encoder=encoder,
         decoder=ThisGPT2LMHeadModel(decoder_config),
         cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size]
     )
     
-    # 6. 冻结编码器并打印参数
+    # 5. 冻结编码器
     for param in model.encoder.parameters():
         param.requires_grad = False
         
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"可训练参数: {trainable_params/1e6:.2f}M")
-    
+    print(f"可训练参数: {sum(p.numel() for p in model.parameters() if p.requires_grad)/1e6:.2f}M")
     return model, tokenizer, None
 
 def get_data(tokenizer, max_length, args):
