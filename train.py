@@ -47,39 +47,38 @@ def load_flickr8k_captions(caption_path):
 
 def get_model_and_auxiliaries(args):
     # 加载中文Tokenizer
-    tokenizer = AutoTokenizer.from_pretrained("bert-base-chinese")  # 或 "uer/gpt2-chinese-cluecorpussmall"
+    tokenizer = AutoTokenizer.from_pretrained("bert-base-chinese")  # 使用中文BERT分词器
     tokenizer.add_special_tokens({
         'pad_token': PAD_TOKEN,
         'eos_token': EOS_TOKEN
     })
     
-    # 初始化Mengzi配置
+    # 初始化GPT-2配置（适配中文）
     config = ThisGPT2Config(
         vocab_size=len(tokenizer),
         n_positions=CAPTION_LENGTH,
         n_embd=768,  # 与CLIP-ViT输出维度对齐
-        n_layer=12,   # 可调整层数减少计算量
+        n_layer=6,   # 减少层数加快训练
         n_head=12,
         cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size],
     )
     
-    # 构建模型
-    encoder = CLIPModel.from_pretrained(args.encoder_name)
-    decoder = MengziGPTLMHeadModel(config)
-    
-    # 初始化时指定decoder_name为"mengzi-gpt"
+    # 使用SmallCap统一初始化
     model = SmallCap.from_encoder_decoder_pretrained(
         encoder_pretrained_model_name_or_path="openai/clip-vit-base-patch32",
-        decoder_pretrained_model_name_or_path="langboat/mengzi-gpt-neo",  # 自动识别为mengzi-gpt类型
-        cross_attention_reduce_factor=4
+        decoder_config=config,  # 直接传入配置
+        cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size]
     )
+    
+    # 调整decoder的token嵌入层
+    model.decoder.resize_token_embeddings(len(tokenizer))
     
     # 冻结编码器
     for param in model.encoder.parameters():
         param.requires_grad = False
         
-    # 投影层（CLIP-ViT输出768维 → Mengzi输入768维）
-    model.proj = nn.Linear(encoder.config.projection_dim, config.n_embd)
+    # 投影层（确保维度匹配）
+    model.proj = nn.Linear(768, config.n_embd)  # CLIP输出768维
     
     print(f"可训练参数: {sum(p.numel() for p in model.parameters() if p.requires_grad)/1e6:.2f}M")
     return model, tokenizer, None
