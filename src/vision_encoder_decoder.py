@@ -29,7 +29,9 @@ from transformers.models.auto.configuration_auto import AutoConfig
 from transformers.models.auto.modeling_auto import AutoModel, AutoModelForCausalLM
 from transformers.models.vision_encoder_decoder.configuration_vision_encoder_decoder import VisionEncoderDecoderConfig
 import inspect
-
+# 在原有导入基础上新增：
+from transformers.models.auto.configuration_auto import AutoConfig
+from .gpt2 import ThisGPT2Config, ThisGPT2LMHeadModel  # 确保导入修改后的类
 from .gpt2 import ThisGPT2LMHeadModel
 from .gpt2 import ThisGPT2Config
 from .xglm import ThisXGLMForCausalLM
@@ -331,12 +333,12 @@ class SmallCap(PreTrainedModel):
                     "If `encoder_model` is not defined as an argument, a `encoder_pretrained_model_name_or_path` has "
                     "to be defined."
                 )
-
+        
             if "config" not in kwargs_encoder:
                 encoder_config, kwargs_encoder = AutoConfig.from_pretrained(
                     encoder_pretrained_model_name_or_path, **kwargs_encoder, return_unused_kwargs=True
                 )
-
+        
                 if encoder_config.is_decoder is True or encoder_config.add_cross_attention is True:
                     logger.info(
                         f"Initializing {encoder_pretrained_model_name_or_path} as a encoder model "
@@ -344,11 +346,11 @@ class SmallCap(PreTrainedModel):
                     )
                     encoder_config.is_decoder = False
                     encoder_config.add_cross_attention = False
-
+        
                 kwargs_encoder["config"] = encoder_config
-
+        
             encoder = AutoModel.from_pretrained(encoder_pretrained_model_name_or_path, *model_args, **kwargs_encoder)
-
+        
         decoder = kwargs_decoder.pop("model", None)
         if decoder is None:
             if decoder_pretrained_model_name_or_path is None:
@@ -356,23 +358,32 @@ class SmallCap(PreTrainedModel):
                     "If `decoder_model` is not defined as an argument, a `decoder_pretrained_model_name_or_path` has "
                     "to be defined."
                 )
-
+        
             if "config" not in kwargs_decoder:
-                if "xglm" in decoder_pretrained_model_name_or_path:
+                # 修改点1：添加mengzi-gpt的配置加载分支
+                if "mengzi" in decoder_pretrained_model_name_or_path.lower():
+                    decoder_config, kwargs_decoder = ThisGPT2Config.from_pretrained(
+                        decoder_pretrained_model_name_or_path, 
+                        **kwargs_decoder, 
+                        return_unused_kwargs=True
+                    )
+                    # 添加中文模型特有参数
+                    decoder_config.activation_function = "gelu_new"
+                    decoder_config.resid_pdrop = 0.1
+                    decoder_config.embd_pdrop = 0.1
+                elif "xglm" in decoder_pretrained_model_name_or_path:
                     decoder_config, kwargs_decoder = ThisXGLMConfig.from_pretrained(
                         decoder_pretrained_model_name_or_path, **kwargs_decoder, return_unused_kwargs=True
                     )
-
                 elif "opt" in decoder_pretrained_model_name_or_path:
                     decoder_config, kwargs_decoder = ThisOPTConfig.from_pretrained(
                         decoder_pretrained_model_name_or_path, **kwargs_decoder, return_unused_kwargs=True
                     )
-
                 else:
                     decoder_config, kwargs_decoder = ThisGPT2Config.from_pretrained(
                         decoder_pretrained_model_name_or_path, **kwargs_decoder, return_unused_kwargs=True
                     )
-
+        
                 if decoder_config.is_decoder is False or decoder_config.add_cross_attention is False:
                     logger.info(
                         f"Initializing {decoder_pretrained_model_name_or_path} as a decoder model. Cross attention"
@@ -381,6 +392,8 @@ class SmallCap(PreTrainedModel):
                     )
                     decoder_config.is_decoder = True
                     decoder_config.add_cross_attention = True
+                
+                # 修改点2：统一设置编码器相关参数
                 decoder_config.encoder_hidden_size = encoder.config.vision_config.hidden_size
                 decoder_config.cross_attention_reduce_factor = cross_attention_reduce_factor
                 kwargs_decoder["config"] = decoder_config
@@ -394,18 +407,22 @@ class SmallCap(PreTrainedModel):
                     "`decoder_config` to `.from_encoder_decoder_pretrained(...)`"
                 )
             
-            #decoder = AutoModelForCausalLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
-            if "xglm" in decoder_pretrained_model_name_or_path:
+            # 修改点3：添加mengzi-gpt的模型加载分支
+            if "mengzi" in decoder_pretrained_model_name_or_path.lower():
+                decoder = ThisGPT2LMHeadModel.from_pretrained(
+                    decoder_pretrained_model_name_or_path,
+                    **kwargs_decoder
+                )
+            elif "xglm" in decoder_pretrained_model_name_or_path:
                 decoder = ThisXGLMForCausalLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
-
             elif "opt" in decoder_pretrained_model_name_or_path:
                 decoder = ThisOPTForCausalLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
             else:
                 decoder = ThisGPT2LMHeadModel.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
-
+        
         # instantiate config with corresponding kwargs
         config = SmallCapConfig.from_encoder_decoder_configs(encoder.config, decoder.config, **kwargs)
-
+        
         # make sure input & output embeddings is not tied
         config.tie_word_embeddings = False
         return cls(encoder=encoder, decoder=decoder, config=config)
@@ -490,7 +507,9 @@ class SmallCap(PreTrainedModel):
             decoder_input_ids = shift_tokens_right(
                 labels, self.config.pad_token_id, self.config.decoder_start_token_id
             )
-        
+        # 在decoder调用前添加中文标签处理
+        if labels is not None:
+            labels = labels.masked_fill(labels == self.config.pad_token_id, -100)  # 确保pad_token_id被忽略
         # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
@@ -535,19 +554,25 @@ class SmallCap(PreTrainedModel):
         return shift_tokens_right(labels, self.config.pad_token_id, self.config.decoder_start_token_id)
 
     def prepare_inputs_for_generation(
-        self, input_ids, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
+        self, 
+        input_ids, 
+        past=None, 
+        attention_mask=None, 
+        use_cache=None, 
+        encoder_outputs=None,
+        **kwargs
     ):
-        decoder_inputs = self.decoder.prepare_inputs_for_generation(input_ids, past=past)
-        decoder_attention_mask = decoder_inputs["attention_mask"] if "attention_mask" in decoder_inputs else None
-        input_dict = {
-            "attention_mask": attention_mask,
-            "decoder_attention_mask": decoder_attention_mask,
-            "decoder_input_ids": decoder_inputs["input_ids"],
+        # 添加对中文attention mask的处理
+        if attention_mask is None:
+            attention_mask = (input_ids != self.config.pad_token_id).float()
+            
+        return {
+            "decoder_input_ids": input_ids,
+            "past_key_values": past,
             "encoder_outputs": encoder_outputs,
-            "past_key_values": decoder_inputs["past_key_values"],
+            "attention_mask": attention_mask,
             "use_cache": use_cache,
         }
-        return input_dict
 
     def resize_token_embeddings(self, *args, **kwargs):
         raise NotImplementedError(
