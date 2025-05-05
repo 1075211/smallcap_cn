@@ -15,7 +15,56 @@ class ThisGPT2Config(GPT2Config):
     def __init__(self, cross_attention_reduce_factor=1, **kwargs):
         super().__init__(**kwargs)
         self.cross_attention_reduce_factor = cross_attention_reduce_factor
+# 在src/__init__.py中添加（如果不存在则创建）
+from transformers import AutoConfig
+from .gpt2 import ThisGPT2Config
 
+# 修改get_model_and_auxiliaries函数
+def get_model_and_auxiliaries(args):
+    # 1. 加载分词器
+    from sentencepiece import SentencePieceProcessor
+    tokenizer = SentencePieceProcessor()
+    model_path = "/kaggle/working/smallcap_cn/src/mengzi_gpt.model"
+    
+    if not tokenizer.load(model_path):
+        raise RuntimeError(f"无法加载分词器: {model_path}")
+
+    # 2. 特殊token处理
+    PAD_TOKEN = "</s>"
+    EOS_TOKEN = "</s>"
+    pad_id = eos_id = tokenizer.piece_to_id(PAD_TOKEN)
+    
+    # 3. 初始化模型组件
+    encoder = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+    
+    decoder_config = ThisGPT2Config(
+        vocab_size=tokenizer.get_piece_size(),
+        n_positions=CAPTION_LENGTH,
+        n_embd=768,
+        n_layer=6,
+        n_head=12,
+        pad_token_id=pad_id,
+        eos_token_id=eos_id,
+        cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size]
+    )
+
+    # 4. 构建模型（简化初始化）
+    model = SmallCap(
+        encoder=encoder,
+        decoder=ThisGPT2LMHeadModel(decoder_config)
+    )
+    
+    # 5. 设置额外参数
+    model.config.decoder_start_token_id = tokenizer.bos_id()  # 使用<s>作为解码起始
+    model.config.cross_attention_reduce_factor = PARAMS2REDUCE_FACTOR[args.attention_size]
+    
+    # 冻结编码器
+    for param in model.encoder.parameters():
+        param.requires_grad = False
+        
+    print(f"可训练参数: {sum(p.numel() for p in model.parameters() if p.requires_grad)/1e6:.2f}M")
+    return model, tokenizer, None
+    
 class ThisGPT2Attention(nn.Module):
     def __init__(self, config, is_cross_attention=False, layer_idx=None):
         super().__init__()
