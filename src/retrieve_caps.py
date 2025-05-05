@@ -138,7 +138,10 @@ def filter_nns(nns, caption_image_ids, captions, query_image_ids, k=3):
                     break
         
         # 检查检索到的描述是否为空
+        if not valid_captions:
+            print(f"警告: 图像 {img_id} 没有有效的描述被检索到！")
         print(f"Image {img_id} found {len(valid_captions)} captions.")
+        
         if valid_captions:
             retrieved[img_id] = valid_captions
     
