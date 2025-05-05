@@ -66,47 +66,57 @@ def filter_captions(captions, max_length=25):
     return filtered_image_ids, filtered_captions
 
 def encode_captions(captions, model, device, batch_size=128):
-    """用CLIP编码中文描述（优化内存和性能）"""
+    """用CLIP编码中文描述（确保输出维度）"""
     encoded = []
+    model = model.to(device)
+    
+    # 先运行一次获取维度
+    with torch.no_grad():
+        test_input = clip.tokenize(["测试"]).to(device)
+        test_output = model.encode_text(test_input)
+        output_dim = test_output.shape[1]
+        print(f"CLIP文本编码器输出维度：{output_dim}")
+    
     for i in tqdm(range(0, len(captions), batch_size), desc="Encoding captions"):
         batch = captions[i:i+batch_size]
-        with torch.no_grad(), torch.cuda.amp.autocast():
+        with torch.no_grad():
             inputs = clip.tokenize(batch, truncate=True).to(device)
             batch_encoded = model.encode_text(inputs).float().cpu().numpy()
+            assert batch_encoded.shape[1] == output_dim, "编码维度不一致"
             encoded.append(batch_encoded)
-        
-        # 每隔10个批次释放内存
-        if i % (10*batch_size) == 0:
-            torch.cuda.empty_cache()
     
     return np.concatenate(encoded)
 
 def get_nns(captions, images, k=15):
-    """使用FAISS构建索引并检索（优化大内存处理）"""
+    """使用FAISS构建索引并检索（添加维度检查）"""
     # 转换为float32类型
-    xb = np.ascontiguousarray(captions.astype(np.float32))
-    xq = np.ascontiguousarray(images.astype(np.float32))
+    xb = np.ascontiguousarray(captions.astype(np.float32))  # 描述特征
+    xq = np.ascontiguousarray(images.astype(np.float32))    # 图像特征
+    
+    # 验证维度
+    assert xb.shape[1] == xq.shape[1], f"维度不匹配：描述特征{xb.shape} vs 图像特征{xq.shape}"
+    dim = xb.shape[1]
     
     # 归一化
     faiss.normalize_L2(xb)
     faiss.normalize_L2(xq)
     
-    print("构建FAISS索引...")
-    dim = xb.shape[1]
+    print(f"构建FAISS索引，维度={dim}...")
     
-    # 对于大数据集，使用IVF索引减少内存
-    nlist = min(100, xb.shape[0]//100)  # 聚类中心数
-    quantizer = faiss.IndexFlatIP(dim)
-    index = faiss.IndexIVFFlat(quantizer, dim, nlist, faiss.METRIC_INNER_PRODUCT)
-    
-    if not index.is_trained:
-        print("训练聚类中心...")
-        index.train(xb)
+    # 对于小数据集使用精确搜索
+    if len(xb) < 10000:
+        index = faiss.IndexFlatIP(dim)
+    else:
+        # 大数据集使用IVF索引
+        nlist = min(100, len(xb)//100)
+        quantizer = faiss.IndexFlatIP(dim)
+        index = faiss.IndexIVFFlat(quantizer, dim, nlist, faiss.METRIC_INNER_PRODUCT)
+        if not index.is_trained:
+            print("训练聚类中心...")
+            index.train(xb)
     
     print("添加向量到索引...")
-    batch_size = 10000
-    for i in tqdm(range(0, xb.shape[0], batch_size)):
-        index.add(xb[i:i+batch_size])
+    index.add(xb)
     
     print("搜索最近邻...")
     D, I = index.search(xq, k)
@@ -155,10 +165,22 @@ def main():
         # 2. 编码描述
         print('4. 编码描述')
         encoded_captions = encode_captions(filtered_captions, clip_model, device)
+        print(f"描述特征形状：{encoded_captions.shape}")
         
-        # 3. 使用预提取图像特征
         print('5. 准备图像特征')
-        encoded_features = np.array(features)  # 将memmap转为普通数组
+        encoded_features = np.array(features)
+        print(f"图像特征形状：{encoded_features.shape}")
+        
+        # 显式检查维度
+        if encoded_captions.shape[1] != encoded_features.shape[1]:
+        print(f"警告：维度不匹配！正在调整图像特征维度...")
+        # 如果维度较小，通过填充0调整
+        if encoded_features.shape[1] < encoded_captions.shape[1]:
+            pad_width = [(0,0), (0, encoded_captions.shape[1] - encoded_features.shape[1])]
+            encoded_features = np.pad(encoded_features, pad_width, mode='constant')
+        # 如果维度较大，截取
+        else:
+            encoded_features = encoded_features[:, :encoded_captions.shape[1]]
         
         # 4. 构建FAISS索引并检索
         print('6. 构建FAISS索引并检索')
