@@ -127,14 +127,17 @@ def main(args):
 
     # 训练配置
     training_args = Seq2SeqTrainingArguments(
-        output_dir=os.path.join(args.experiments_dir, f"flickr8k_cn_{args.decoder_name}"),
+        output_dir=os.path.join(args.experiments_dir, "flickr8k_cn"),
         num_train_epochs=args.n_epochs,
         per_device_train_batch_size=args.batch_size,
         learning_rate=args.lr,
         fp16=True,
-        logging_strategy="epoch",
+        gradient_accumulation_steps=2,  # 小batch时使用
+        logging_strategy="steps",
+        logging_steps=100,
         save_strategy="epoch",
-        save_total_limit=2
+        save_total_limit=2,
+        prediction_loss_only=True  # 仅计算loss加速训练
     )
 
     trainer = Seq2SeqTrainer(
