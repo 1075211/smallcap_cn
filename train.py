@@ -188,6 +188,8 @@ if __name__ == '__main__':
     parser.add_argument("--n_epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--batch_size", type=int, default=32)
+    # ✅ 添加视觉消融实验参数
+    parser.add_argument("--ablation_visual", action="store_true", help="启用视觉特征消融")
 
     args = parser.parse_args()
     main(args)
