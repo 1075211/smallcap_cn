@@ -79,14 +79,18 @@ def get_model_and_auxiliaries(args):
         cross_attention_reduce_factor=PARAMS2REDUCE_FACTOR[args.attention_size]
     )
 
+    # ✅ 显式构造 SmallCapConfig，避免 AutoConfig 报错
+    config = SmallCapConfig(
+        encoder=encoder.config.to_dict(),
+        decoder=decoder_config.to_dict(),
+        is_encoder_decoder=True
+    )
+
     # 4. 构建模型
     model = SmallCap(
         encoder=encoder,
         decoder=ThisGPT2LMHeadModel(decoder_config),
-        config=SmallCapConfig.from_encoder_decoder_configs(
-            encoder.config,
-            decoder_config
-        )
+        config=config
     )
     
     # 5. 冻结编码器
