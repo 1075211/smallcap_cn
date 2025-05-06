@@ -171,8 +171,8 @@ def main():
             clip_model.eval()
         
         # 1. 过滤过长的描述
-        print('3. 过滤过长的描述')
-        filtered_image_ids, filtered_captions = filter_captions(captions)
+        #print('3. 过滤过长的描述')
+        #filtered_image_ids, filtered_captions = filter_captions(captions)
         
         # 2. 编码描述
         print('4. 编码描述')
