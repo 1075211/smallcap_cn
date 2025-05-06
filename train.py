@@ -32,7 +32,6 @@ def load_flickr8k_features(feature_path, id_path, shape_path):
         image_ids = [line.strip() for line in f]
     return features, image_ids
 
-
 def load_flickr8k_captions(caption_path):
     """加载中文描述并分词"""
     captions = []
@@ -44,7 +43,19 @@ def load_flickr8k_captions(caption_path):
             captions.append({'image_id': img_id, 'caption': caption})
     return captions
 
-
+def load_flickr8k_data(feature_dir, caption_path):
+    """整合加载Flickr8k-CN数据"""
+    # 加载特征
+    features, image_ids = load_flickr8k_features(
+        os.path.join(feature_dir, 'feature.bin'),
+        os.path.join(feature_dir, 'id.txt'),
+        os.path.join(feature_dir, 'shape.txt')
+    )
+    
+    # 加载描述
+    captions = load_flickr8k_captions(caption_path)
+    
+    return image_ids, features, captions
 
 def get_model_and_auxiliaries(args):
     # 1. 加载分词器
@@ -104,12 +115,10 @@ def get_model_and_auxiliaries(args):
 def get_data(tokenizer, max_length, args):
     """加载Flickr8k-CN数据"""
     # 加载特征和描述
-    features, image_ids = load_flickr8k_features(
-        os.path.join(args.features_dir, 'feature.bin'),
-        os.path.join(args.features_dir, 'id.txt'),
-        os.path.join(args.features_dir, 'shape.txt')
+    image_ids, features, captions = load_flickr8k_data(
+        args.features_dir,
+        args.captions_path
     )
-    captions = load_flickr8k_captions(args.captions_path)
 
     # 构建DataFrame
     data = {'image_id': [], 'caption': [], 'feature_idx': []}
@@ -149,8 +158,6 @@ def main(args):
         input_ids = [tokenizer.EncodeAsIds(text) for text in examples["caption"]]
         return {"input_ids": input_ids}
     
-    # 其他代码保持不变...
-
     # 训练配置
     training_args = Seq2SeqTrainingArguments(
         output_dir=args.experiments_dir,
@@ -188,7 +195,6 @@ if __name__ == '__main__':
     parser.add_argument("--n_epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--batch_size", type=int, default=32)
-    # ✅ 添加视觉消融实验参数
     parser.add_argument("--ablation_visual", action="store_true", help="启用视觉特征消融")
 
     args = parser.parse_args()
