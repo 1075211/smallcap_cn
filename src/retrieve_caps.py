@@ -176,7 +176,8 @@ def main():
         
         # 2. 编码描述
         print('4. 编码描述')
-        encoded_captions = encode_captions(filtered_captions, clip_model, device)
+        #encoded_captions = encode_captions(filtered_captions, clip_model, device)
+        encoded_captions = encode_captions(captions, clip_model, device)
         print(f"描述特征形状：{encoded_captions.shape}")
         
         print('5. 准备图像特征')
