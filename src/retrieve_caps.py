@@ -33,7 +33,7 @@ def encode_webqa(corpus, model, device, batch_size=128):
     encoded = []
     model = model.to(device)
     
-    for i in tqdm(range(0, len(corpus), batch_size, desc="Encoding WebQA"):
+    for i in tqdm(range(0, len(corpus), batch_size), desc="Encoding WebQA"):
         batch = corpus[i:i+batch_size]
         with torch.no_grad():
             inputs = clip.tokenize(batch, truncate=True).to(device)
